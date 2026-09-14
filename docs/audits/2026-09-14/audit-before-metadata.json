@@ -1,0 +1,8 @@
+{
+  "checkedAt": "2026-09-14T09:34:03.7733885Z",
+  "sourceCommit": "d75c5dac072540254dc7d8b9c858a076f0f68be0",
+  "fullExitCode": 1,
+  "productionExitCode": 0,
+  "node": "v24.15.0",
+  "npm": "11.12.1"
+}

@@ -1,0 +1,148 @@
+import { beforeEach, expect, it, vi } from 'vitest';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import * as api from './api';
+import { SkillPage as SkillPageView } from './SkillPage';
+import { useSkillUpdates } from './useSkillUpdates';
+import type { ComponentProps } from 'react';
+function SkillPage(props:Omit<ComponentProps<typeof SkillPageView>,'controller'>){const controller=useSkillUpdates(props.snapshot,props.refresh,props.notify);return <SkillPageView {...props} controller={controller}/>;}
+import type { SkillChangePlan, Snapshot } from './types';
+const source={kind:'git' as const,locator:'https://github.com/example/repo'};
+const snapshot:Snapshot={dataScope:'fixture',prompts:[],skills:[{id:'s',name:'Writer',description:'writing',path:'C:/library/writer',source,tags:[],favorite:false,createdAt:'',updatedAt:''}],deployments:[],projects:[],settings:{scanRoots:[],executables:{codex:'',claude:'',dsh:''}},operations:[]};
+const targets=[{id:'codex',name:'Codex',enabled:true,globalPath:'C:/agent/skills',projectPath:'.agents/skills'}];
+const plan:SkillChangePlan={id:'plan',skillId:'s',action:'install',summary:'安装 Writer',canExecute:true,createdAt:'',locations:[{id:'loc',path:'C:/agent/skills/writer',label:'Codex',agents:['codex'],exists:false,differences:[]}]};
+beforeEach(()=>vi.restoreAllMocks());
+it('opens prepared differences immediately while preferences load, without checking the source again',async()=>{
+  let finishPolicy!:(v:unknown)=>void;
+  const policy=new Promise(resolve=>{finishPolicy=resolve;});
+  const locations=[{id:'library',path:'C:/library/writer',label:'Skill 库',agents:[],exists:true,differences:[{path:'SKILL.md',change:'modified'}]}];
+  const dispatch=vi.spyOn(api,'dispatch').mockImplementation(async (...[method]) =>method==='targets.list'?{targets} as never:method==='maintenance.get'?policy as never:{} as never);
+  render(<SkillPage snapshot={{...snapshot,skillUpdates:[{skillId:'s',name:'Writer',status:'available',message:'来源有变化',checkId:'saved',locations}]}} refresh={vi.fn()} notify={vi.fn()} onProject={vi.fn()}/>);
+  await userEvent.click(await screen.findByRole('button',{name:'更新'}));
+  const dialog=within(screen.getByRole('dialog'));
+  expect(dialog.getByRole('button',{name:'SKILL.md'})).toBeVisible();
+  expect(dialog.queryByText('正在准备更新内容…')).not.toBeInTheDocument();
+  expect(dialog.getByRole('button',{name:'确认更新'})).toBeDisabled();
+  expect(dispatch.mock.calls.some(([m])=>m==='skills.check')).toBe(false);
+  await act(async()=>finishPolicy({retainUpdateBackup:false}));
+  expect(dialog.getByLabelText('更新前保留备份')).not.toBeChecked();
+  expect(dialog.getByRole('button',{name:'确认更新'})).toBeEnabled();
+});
+it('does not write when the final file validation blocks an update and cancels its plan',async()=>{
+  const locations=[{id:'library',path:'C:/library/writer',label:'Skill 库',agents:[],exists:true,differences:[{path:'SKILL.md',change:'modified'}]}];
+  const dispatch=vi.spyOn(api,'dispatch').mockImplementation(async (...[method]) =>method==='targets.list'?{targets} as never:method==='skills.update.preview'?{...plan,action:'update',canExecute:false,blockedReason:'检查之后文件已变化，请重新检查'} as never:{} as never);
+  render(<SkillPage snapshot={{...snapshot,skillUpdates:[{skillId:'s',name:'Writer',status:'available',message:'来源有变化',checkId:'saved',locations}]}} refresh={vi.fn()} notify={vi.fn()} onProject={vi.fn()}/>);
+  await userEvent.click(await screen.findByRole('button',{name:'更新'}));
+  await userEvent.click(screen.getByRole('button',{name:'确认更新'}));
+  expect(await screen.findByRole('alert')).toHaveTextContent('检查之后文件已变化');
+  expect(dispatch.mock.calls.some(([m])=>m==='skills.update')).toBe(false);
+  expect(dispatch).toHaveBeenCalledWith('skills.cancel',{planId:'plan'});
+});
+it('removes a bound source only after confirmation',async()=>{
+  const dispatch=vi.spyOn(api,'dispatch').mockImplementation(async (...[method]) =>method==='targets.list'?{targets} as never:{} as never);
+  const refresh=vi.fn().mockResolvedValue(undefined);
+  render(<SkillPage snapshot={snapshot} refresh={refresh} notify={vi.fn()} onProject={vi.fn()}/>);
+  expect(screen.queryByRole('button',{name:'设置来源'})).not.toBeInTheDocument();
+  await userEvent.click(screen.getByRole('button',{name:'删除来源'}));
+  expect(dispatch.mock.calls.some(([m])=>m==='skills.unbindSource')).toBe(false);
+  await userEvent.click(screen.getByRole('button',{name:'确认删除来源'}));
+  await waitFor(()=>expect(refresh).toHaveBeenCalledOnce());
+  expect(dispatch).toHaveBeenCalledWith('skills.unbindSource',{skillId:'s'});
+});
+it('keeps other Skills and repository controls usable during a single check and reuses that check in the batch',async()=>{
+  let resolve!:(v:unknown)=>void;
+  const pending=new Promise(r=>{resolve=r;});
+  const dispatch=vi.spyOn(api,'dispatch').mockImplementation(async (...[method,args]) =>{
+    if(method==='targets.list')return {targets} as never;
+    if(method==='skills.checkBatch.start')return {batchId:'batch',concurrency:3} as never;
+    if(method==='skills.check')return (args?.skillId==='s'?pending:{message:'Second done'}) as never;
+    return {} as never;
+  });
+  render(<SkillPage snapshot={{...snapshot,skills:[snapshot.skills[0],{...snapshot.skills[0],id:'s2',name:'Second'}]}} refresh={vi.fn()} notify={vi.fn()} onProject={vi.fn()}/>);
+  await userEvent.click(screen.getAllByRole('button',{name:'检查更新'})[0]);
+  expect(screen.getByRole('button',{name:'检查中…'})).toBeDisabled();
+  expect(screen.getByRole('button',{name:'检查更新'})).toBeEnabled();
+  expect(screen.getByRole('button',{name:'Skill 仓库'})).toBeEnabled();
+  expect(screen.getByRole('button',{name:'检查全部更新'})).toBeEnabled();
+  await userEvent.click(screen.getByRole('button',{name:'检查全部更新'}));
+  await act(async()=>resolve({message:'First done'}));
+  await screen.findByText('Second done');
+  expect(dispatch.mock.calls.flatMap(([m,args])=>m==='skills.check'?[args.skillId]:[])).toEqual(['s','s2']);
+});
+it('does not install until the explicit reviewed plan is confirmed',async()=>{
+  const dispatch=vi.spyOn(api,'dispatch').mockImplementation(async (...[method]) =>{if(method==='targets.list')return {targets} as never;if(method==='maintenance.get')return {} as never;if(method==='skills.install.preview')return plan as never;return {status:'succeeded',summary:'已安装'} as never;});
+  const refresh=vi.fn().mockResolvedValue(undefined);render(<SkillPage snapshot={snapshot} refresh={refresh} notify={vi.fn()} onProject={vi.fn()}/>);
+  await userEvent.click(await screen.findByRole('button',{name:'安装 Writer 到 Codex'}));
+  expect(await screen.findByRole('dialog')).toHaveTextContent('C:\\agent\\skills\\writer');expect(dispatch).toHaveBeenCalledWith('skills.install.preview',{skillId:'s',targetId:'codex'});expect(dispatch.mock.calls.some(([m])=>m==='skills.install')).toBe(false);
+  await userEvent.click(screen.getByRole('button',{name:'确认安装到 Agent'}));await waitFor(()=>expect(dispatch).toHaveBeenCalledWith('skills.install',{planId:'plan',confirmed:true}));await waitFor(()=>expect(refresh).toHaveBeenCalledTimes(1));
+});
+it('checks a source, shows file differences and updates only the selected locations',async()=>{
+  const locations=[{id:'library',path:'C:/library/writer',label:'Skill 库',agents:[],exists:true,differences:[{path:'SKILL.md',change:'modified'}]},{id:'agent',path:'C:/agent/skills/writer',label:'Codex',agents:['codex'],exists:true,differences:[{path:'SKILL.md',change:'modified'}]}];
+  const dispatch=vi.spyOn(api,'dispatch').mockImplementation(async (...[method]) =>{if(method==='targets.list')return {targets} as never;if(method==='maintenance.get')return {retainUpdateBackup:true} as never;if(method==='skills.check')return {skillId:'s',name:'Writer',checkId:'check',status:'available',message:'来源有变化',locations} as never;if(method==='skills.diff')return {oldText:'before',newText:'after'} as never;if(method==='skills.update.preview')return {...plan,action:'update',locations:[locations[1]]} as never;return {status:'succeeded',summary:'已更新'} as never;});
+  render(<SkillPage snapshot={snapshot} refresh={vi.fn().mockResolvedValue(undefined)} notify={vi.fn()} onProject={vi.fn()}/>);
+  await userEvent.click(screen.getByRole('button',{name:'检查更新'}));await userEvent.click(await screen.findByRole('button',{name:'更新'}));
+  const dialog=within(screen.getByRole('dialog'));await userEvent.click(dialog.getByRole('button',{name:'SKILL.md'}));expect(await screen.findByText('before')).toBeVisible();expect(screen.getByText('after')).toBeVisible();
+  await userEvent.click(dialog.getByLabelText('更新 Skill 库'));expect(dispatch.mock.calls.filter(([m])=>m==='skills.check')).toHaveLength(1);
+  await userEvent.click(dialog.getByRole('button',{name:'确认更新'}));
+  expect(dispatch).toHaveBeenCalledWith('skills.update.preview',{skillId:'s',checkId:'check',locationIds:['agent'],retainBackup:true});
+  await waitFor(()=>expect(dispatch).toHaveBeenCalledWith('skills.update',{planId:'plan',confirmed:true}));
+  expect(dispatch.mock.calls.filter(([m])=>m==='skills.update')).toHaveLength(1);
+});
+it('shows source setup for an unknown source and never offers a check',async()=>{
+  vi.spyOn(api,'dispatch').mockImplementation(async (...[method]) =>method==='targets.list'?{targets:[]} as never:{} as never);
+  render(<SkillPage snapshot={{...snapshot,skills:[{...snapshot.skills[0],source:{kind:'unknown',locator:''}}]}} refresh={vi.fn()} notify={vi.fn()} onProject={vi.fn()}/>);
+  expect(await screen.findByRole('button',{name:'设置来源'})).toBeVisible();expect(screen.queryByRole('button',{name:'检查更新'})).not.toBeInTheDocument();
+});
+
+it('deletes directly after validating the selected scope, without a separate path step',async()=>{
+  const dispatch=vi.spyOn(api,'dispatch').mockImplementation(async (...[method]) =>{
+    if(method==='targets.list')return {targets} as never;
+    if(method==='skills.delete.preview')return {...plan,action:'delete'} as never;
+    if(method==='skills.delete')return {status:'succeeded',summary:'已删除'} as never;
+    return {} as never;
+  });
+  const refresh=vi.fn().mockResolvedValue(undefined);
+  render(<SkillPage snapshot={snapshot} refresh={refresh} notify={vi.fn()} onProject={vi.fn()}/>);
+  await userEvent.click(screen.getByRole('button',{name:'从库删除'}));
+  expect(dispatch.mock.calls.some(([m])=>m==='skills.delete')).toBe(false);
+  await userEvent.click(screen.getByRole('button',{name:'直接删除'}));
+  await waitFor(()=>expect(refresh).toHaveBeenCalledOnce());
+  expect(dispatch).toHaveBeenCalledWith('skills.delete.preview',{skillId:'s',removeDeployments:false});
+  expect(dispatch).toHaveBeenCalledWith('skills.delete',{planId:'plan',confirmed:true});
+});
+
+it('does not execute direct deletion when the core blocks the plan',async()=>{
+  const dispatch=vi.spyOn(api,'dispatch').mockImplementation(async (...[method]) =>method==='targets.list'?{targets} as never:method==='skills.delete.preview'?{...plan,canExecute:false,blockedReason:'文件已变化'} as never:{} as never);
+  render(<SkillPage snapshot={snapshot} refresh={vi.fn()} notify={vi.fn()} onProject={vi.fn()}/>);
+  await userEvent.click(screen.getByRole('button',{name:'从库删除'}));
+  await userEvent.click(screen.getByRole('button',{name:'直接删除'}));
+  expect(await within(screen.getByRole('dialog')).findByRole('alert')).toHaveTextContent('文件已变化');
+  expect(dispatch.mock.calls.some(([m])=>m==='skills.delete')).toBe(false);
+});
+
+it('checks all bound Skills and continues after a failure, skipping unknown sources',async()=>{
+  const dispatch=vi.spyOn(api,'dispatch').mockImplementation(async (...[method,args]) =>{
+    if(method==='targets.list')return {targets} as never;
+    if(method==='skills.checkBatch.start')return {batchId:'batch',concurrency:3} as never;
+    if(method==='skills.check'){if(args?.skillId==='s')throw Error('网络失败');return {skillId:'s2',message:'已是最新'} as never;}
+    return {} as never;
+  });
+  render(<SkillPage snapshot={{...snapshot,skills:[snapshot.skills[0],{...snapshot.skills[0],id:'s2',name:'Second'},{...snapshot.skills[0],id:'s3',name:'Unknown',source:{kind:'unknown',locator:''}}]}} refresh={vi.fn()} notify={vi.fn()} onProject={vi.fn()}/>);
+  await userEvent.click(screen.getByRole('button',{name:'检查全部更新'}));
+  expect(await screen.findByText('已是最新')).toBeVisible();
+  expect(dispatch.mock.calls.flatMap(([m,args])=>m==='skills.check'?[args.skillId]:[])).toEqual(['s','s2']);
+  expect(screen.getByRole('alert')).toHaveTextContent('1 个 Skill 检查失败（Writer）');
+});
+
+it('filters all Agents to the selected project and can install another library Skill there',async()=>{
+ const project={id:'p',name:'Project',path:'C:/project',gitTrusted:false,archived:false,createdAt:'',updatedAt:''};
+ const local={...snapshot.skills[0],id:'local',name:'Project writer'};
+ const dispatch=vi.spyOn(api,'dispatch').mockImplementation(async (...[method]) =>method==='targets.list'?{targets} as never:method==='skills.install.preview'?plan as never:{} as never);
+ render(<SkillPage snapshot={{...snapshot,skills:[snapshot.skills[0],local],projects:[project],deployments:[{id:'global',skillId:'s',name:'Writer',description:'',agent:'codex',scope:'global',path:'C:/agent/skills/writer',source,owner:'user',status:'present',ignored:false,present:true},{id:'project',skillId:'local',name:'Project writer',description:'',agent:'codex',scope:'project',projectId:'p',path:'C:/project/.agents/skills/writer',source,owner:'user',status:'present',ignored:false,present:true}]}} projectId="p" refresh={vi.fn()} notify={vi.fn()} onProject={vi.fn()}/>);
+ expect(await screen.findByRole('button',{name:'Project writer'})).toBeVisible();
+ expect(screen.queryByRole('button',{name:'Writer'})).not.toBeInTheDocument();
+ await userEvent.click(screen.getByRole('button',{name:'从库安装'}));
+ await userEvent.click(await within(screen.getByRole('dialog')).findByRole('button',{name:'安装 Writer 到 Codex'}));
+ expect(dispatch).toHaveBeenCalledWith('skills.install.preview',{skillId:'s',targetId:'codex',projectId:'p'});
+ expect(dispatch.mock.calls.some(([m])=>m==='skills.install')).toBe(false);
+});

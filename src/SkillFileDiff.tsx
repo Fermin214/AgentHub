@@ -1,0 +1,14 @@
+import { useEffect, useState } from 'react';
+import * as api from './api';
+import { useT } from './i18n';
+import type { UpdateCheck } from './types';
+export function SkillFileDiff({comparison,selectedLocations,onSelection,disabled=false}:{comparison:UpdateCheck;selectedLocations:string[];onSelection:(ids:string[])=>void;disabled?:boolean}) {
+  const t=useT();
+  const locations=comparison.locations||[];
+  const [location,setLocation]=useState(locations[0]?.id||'');const [path,setPath]=useState('');
+  const [diff,setDiff]=useState<{oldText:string|null;newText:string|null}>();const [error,setError]=useState('');const [busy,setBusy]=useState(false);
+  const current=locations.find(l=>l.id===location);
+  useEffect(()=>{setLocation(comparison.locations?.[0]?.id||'');setPath('');setDiff(undefined);},[comparison.checkId]);
+  useEffect(()=>{if(!path||!comparison.checkId)return;let live=true;setBusy(true);setError('');setDiff(undefined);api.dispatch('skills.diff',{checkId:comparison.checkId,locationId:location,path}).then(r=>{if(live)setDiff(r);}).catch(e=>{if(live)setError(String(e));}).finally(()=>{if(live)setBusy(false);});return()=>{live=false;};},[comparison.checkId,location,path]);
+  return <section className="skill-file-diff"><h3>{t('diff.chooseLocations')}</h3><div className="update-locations">{locations.map(l=><div className={'update-location'+(location===l.id?' is-active':'')} key={l.id}><input type="checkbox" aria-label={t('diff.updateLabel',{label:t.backend(l.label)})} disabled={disabled||!l.differences.length} checked={selectedLocations.includes(l.id)} onChange={e=>onSelection(e.target.checked?[...selectedLocations,l.id]:selectedLocations.filter(id=>id!==l.id))}/><button className="update-location__detail" aria-pressed={location===l.id} onClick={()=>{setLocation(l.id);setPath('');setDiff(undefined);}}><strong>{t.backend(l.label)}</strong><span>{l.path}</span><small>{t('change.fileChanges',{n:l.differences.length})}</small></button></div>)}</div><h4>{current?t.backend(current.label):''}</h4>{current?.differences.length?<ul className="file-differences">{current.differences.map(f=><li key={f.path}><span>{({added:t('diff.added'),modified:t('diff.modified'),removed:t('diff.removed'),deleted:t('diff.removed')} as Record<string,string>)[f.change]||f.change}</span><button className="inline-link" onClick={()=>setPath(f.path)}>{f.path}</button></li>)}</ul>:<p>{t('diff.identical')}</p>}{busy&&<p role="status">{t('diff.reading')}</p>}{error&&<p role="alert" className="text-error">{t.backend(error)}</p>}{diff&&<><h4>{path}</h4><div className="form-grid"><section><h4>{t('diff.current')}</h4><pre className="project-update__output">{diff.oldText??t('diff.unavailable')}</pre></section><section><h4>{t('diff.incoming')}</h4><pre className="project-update__output">{diff.newText??t('diff.unavailable')}</pre></section></div></>}</section>;
+}

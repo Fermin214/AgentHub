@@ -1,0 +1,38 @@
+import { beforeEach, expect, it, vi } from 'vitest';
+import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import * as api from './api';
+import { ProjectUpdateDialog } from './ProjectUpdateDialog';
+import type { LocalProject } from './types';
+const project = { id: 'repo', name: 'Example project', path: 'C:/Projects/example' } as LocalProject;
+beforeEach(() => vi.restoreAllMocks());
+it('shows latest commits first and keeps the ancestor below all loaded pages',async()=>{
+  const state={isGit:true,head:'local',upstreamHead:'remote',behind:2,commonAncestor:'base',commonAncestorSummary:'base shared starting point',commitRangeTotal:2,upstreamCommits:'bbb latest change',upstreamChanges:'file.txt | 2 +'};
+  const dispatch=vi.spyOn(api,'dispatch').mockImplementation(async (...[method]) =>method==='projects.inspect'?{state} as never:{commits:'aaa earlier change'} as never);
+  render(<ProjectUpdateDialog project={project} onClose={vi.fn()}/>);
+  expect(await screen.findByText('上游领先本地 2 个提交')).toBeVisible();
+  expect(screen.getAllByRole('listitem')).toHaveLength(1);
+  await userEvent.click(screen.getByRole('button',{name:'继续显示 · 已显示 1 / 2'}));
+  expect(await screen.findByText('earlier change')).toBeVisible();
+  expect(screen.getAllByRole('listitem').map(e=>e.textContent)).toEqual(['bbblatest change','aaaearlier change']);
+  const ancestor=screen.getByText('共同祖先').closest('.commit-ancestor')!;
+  expect(screen.getByText('earlier change').compareDocumentPosition(ancestor) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(screen.queryByRole('button',{name:/继续显示/})).not.toBeInTheDocument();
+  await userEvent.click(screen.getByText('上游文件变化'));
+  expect(screen.getByText('file.txt | 2 +')).toBeVisible();
+  expect(dispatch).toHaveBeenCalledWith('projects.commits',{projectId:'repo',head:'local',upstreamHead:'remote',offset:1});
+  expect(dispatch.mock.calls.some(([m])=>m==='projects.check')).toBe(false);
+  expect(screen.queryByRole('button',{name:'检查上游'})).not.toBeInTheDocument();
+});
+it('distinguishes cached commits from a failed fetch and allows closing while loading',async()=>{
+  const dispatch=vi.spyOn(api,'dispatch').mockResolvedValue({state:{isGit:true,behind:416},lastCheck:{status:'failed',message:'Git: connection timed out',checkedAt:'2026-09-13T10:00:00Z',fetchedAt:'2026-09-12T10:00:00Z'}} as never);
+  render(<ProjectUpdateDialog project={project} onClose={vi.fn()}/>);
+  expect(screen.getAllByRole('button',{name:'关闭'})[0]).toBeEnabled();
+  expect(screen.getByRole('status')).toHaveTextContent('正在读取详情');
+  expect(screen.queryByText('还没有检查上游')).not.toBeInTheDocument();
+  expect(screen.queryByText('本机目录')).not.toBeInTheDocument();
+  expect(await screen.findByText('上游领先本地 416 个提交')).toBeVisible();
+  expect(screen.getByText(/上次获取上游/)).toBeVisible();
+  expect(screen.getByText(/最近尝试/)).toBeVisible();
+  expect(dispatch.mock.calls.map(([method])=>method)).toEqual(['projects.inspect']);
+});

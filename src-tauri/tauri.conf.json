@@ -1,0 +1,65 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "AgentHub",
+  "version": "0.1.0",
+  "identifier": "dev.agenthub.desktop",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build",
+    "devUrl": "http://127.0.0.1:1420",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "AgentHub",
+        "width": 1280,
+        "height": 860,
+        "minWidth": 860,
+        "minHeight": 640,
+        "backgroundColor": "#f6f7fa"
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' asset: http://asset.localhost data:; connect-src ipc: http://ipc.localhost; font-src 'self' data:"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": [
+      "nsis"
+    ],
+    "resources": {
+      "resources/agenthub-layout.json": "data/runtime/agenthub-layout.json",
+      "../THIRD-PARTY-NOTICES.md": "data/runtime/THIRD-PARTY-NOTICES.md",
+      "../LICENSE": "data/runtime/LICENSE",
+      "../licenses/DEPENDENCY-NOTICES.md": "data/runtime/DEPENDENCY-NOTICES.md",
+      "../licenses/NSIS-COPYING.txt": "data/runtime/NSIS-COPYING.txt",
+      "../licenses/inventory.json": "data/runtime/inventory.json",
+      "../licenses/RUST-STDLIB-NOTICES.html": "data/runtime/RUST-STDLIB-NOTICES.html"
+    },
+    "icon": [
+      "icons/icon.ico"
+    ],
+    "shortDescription": "本地 Prompt、Skill 和项目管理器",
+    "windows": {
+      "nsis": {
+        "languages": [
+          "SimpChinese",
+          "English"
+        ],
+        "displayLanguageSelector": false,
+        "installMode": "currentUser",
+        "installerHooks": "./nsis-hooks.nsh",
+        "template": "./installer.nsi",
+        "installerIcon": "icons/icon.ico",
+        "uninstallerIcon": "icons/icon.ico"
+      },
+      "allowDowngrades": false,
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper",
+        "silent": true
+      }
+    }
+  }
+}

@@ -1,0 +1,88 @@
+import type { BackupRecord, ChangeResult, LocalProject, Prompt, ScanResult, Settings, Skill, SkillCandidate, SkillChangePlan, SkillDeployment, Snapshot, Source, UpdateCheck } from './types';
+
+export type AgentTarget = { id: string; name: string; globalPath: string; projectPath: string; enabled: boolean; available?: boolean };
+export type Repository = { id: string; source: Source; derived?: boolean; updatedAt?: string };
+export type RepositoryBookmark = { id: string; name: string; url: string; notes: string; tags?: string[]; status: 'interested' | 'in_use' | 'uninstalled'; archived: boolean; projectId?: string | null; createdAt?: string; updatedAt?: string };
+export type RetentionResult = { status: string; removedCount: number; failures: Array<{ message: string }> };
+export type MaintenancePolicy = { automaticChecks: boolean; intervalHours: number; retainUpdateBackup?: boolean; maxBackups?: number | null; lastRetention?: RetentionResult; lastAttemptAt?: string };
+export type MaintenancePatch = Partial<Pick<MaintenancePolicy, 'automaticChecks' | 'intervalHours' | 'retainUpdateBackup' | 'maxBackups'>>;
+export type ProjectState = { isGit: boolean; path: string; canCheck: boolean; head?: string; upstreamHead?: string; commitRangeTotal?: number; commonAncestor?: string; commonAncestorSummary?: string; branch?: string; upstream?: string; remote?: string; remoteUrl?: string; ahead?: number; behind?: number; dirty?: boolean; inProgress?: boolean; changes?: string; upstreamCommits?: string; upstreamChanges?: string; message: string };
+export type ProjectCheck = UpdateCheck & { state?: ProjectState | null };
+export type SourceInspection = { inspectionId: string; source: Source; candidates: SkillCandidate[]; cached?: boolean };
+export type ProjectDraft = Pick<LocalProject, 'path'> & Partial<Pick<LocalProject, 'id' | 'name' | 'archived'>>;
+export type InstallRequest = { skillId: string; targetId: string; projectId?: string; replaceModified?: boolean; retainBackup?: boolean };
+export type RemoveRequest = { deploymentId: string; retainBackup?: boolean };
+export type UpdateRequest = { skillId: string; checkId: string; locationIds: string[]; retainBackup?: boolean };
+export type DeleteRequest = { skillId: string; removeDeployments?: boolean; retainBackup?: boolean };
+export type SkillReviewCall = [action: 'install', args: InstallRequest] | [action: 'remove', args: RemoveRequest];
+type Empty = Record<string, never>;
+type Ok = { ok: true };
+type ExecuteRequest = { planId: string; confirmed: true };
+type Contract<Request, Response> = { request: Request; response: Response };
+
+/** Desktop/CLI JSON surface. Requests are the canonical wrapped frontend form.
+ * Rust remains responsible for runtime validation of untrusted input and files.
+ * This map provides compile-time checks; it does not claim to validate IPC JSON.
+ */
+export interface Contracts {
+  'snapshot': Contract<Empty, Snapshot>;
+  'links.open': Contract<{ url: string }, Ok>;
+  'prompts.save': Contract<{ prompt: Prompt }, Prompt>;
+  'prompts.delete': Contract<{ id: string }, Ok>;
+  'prompts.export': Contract<{ format: 'json' | 'markdown' }, { content: string; filename: string }>;
+  'settings.save': Contract<{ settings: Settings }, Settings>;
+  'git.probe': Contract<Empty, { available: boolean; version: string | null }>;
+  'updates.check': Contract<Empty, { updates: UpdateCheck[] }>;
+  'projects.save': Contract<{ project: ProjectDraft }, LocalProject>;
+  'projects.delete': Contract<{ projectId: string }, Ok>;
+  'projects.archive': Contract<{ projectId: string; archived: boolean }, LocalProject>;
+  'projects.trust': Contract<{ projectId: string; path: string } & ({ trusted: true; confirmed: true } | { trusted: false; confirmed?: false }), LocalProject>;
+  'projects.status': Contract<{ projectId: string }, { update: ProjectCheck | null }>;
+  'projects.inspect': Contract<{ projectId: string }, { state: ProjectState; lastCheck: ProjectCheck | null }>;
+  'projects.check': Contract<{ projectId: string }, { state: ProjectState; checkedAt: string; update: ProjectCheck }>;
+  'projects.commits': Contract<{ projectId: string; head: string; upstreamHead: string; offset: number }, { commits: string; total: number }>;
+  'bookmarks.list': Contract<{ query?: string; status?: RepositoryBookmark['status'] | 'all'; tag?: string }, { items: RepositoryBookmark[] }>;
+  'bookmarks.sync': Contract<Empty, { items: RepositoryBookmark[] }>;
+  'bookmarks.save': Contract<{ bookmark: Pick<RepositoryBookmark, 'url'> & Partial<RepositoryBookmark> }, RepositoryBookmark>;
+  'bookmarks.delete': Contract<{ id: string }, Ok & { removed: boolean }>;
+  'targets.list': Contract<Empty, { targets: AgentTarget[] }>;
+  'targets.save': Contract<{ target: AgentTarget }, { target: AgentTarget; targets: AgentTarget[] }>;
+  'network.get': Contract<Empty, { proxyUrl: string }>;
+  'network.save': Contract<{ proxyUrl: string }, { proxyUrl: string }>;
+  'maintenance.get': Contract<Empty, MaintenancePolicy>;
+  'maintenance.save': Contract<MaintenancePatch, MaintenancePolicy & { retention?: RetentionResult }>;
+  'maintenance.preview': Contract<{ maxBackups: number | null }, { maxBackups: number | null; pruneCount: number; protectedCount: number }>;
+  'repositories.list': Contract<Empty, { repositories: Repository[] }>;
+  'repositories.save': Contract<{ inspectionId: string }, { repositories: Repository[] }>;
+  'repositories.remove': Contract<{ id: string }, { repositories: Repository[] }>;
+  'sources.inspect': Contract<{ source: Source }, SourceInspection>;
+  'sources.release': Contract<{ inspectionId: string }, Ok>;
+  'skills.scan': Contract<Empty, ScanResult>;
+  'skills.add': Contract<{ inspectionId: string; subpath: string }, { skill: Skill }>;
+  'skills.bindSource': Contract<{ inspectionId: string; subpath: string; skillId: string }, { skill: Skill }>;
+  'skills.unbindSource': Contract<{ skillId: string }, { skill: Skill }>;
+  'skills.import': Contract<{ deploymentIds: string[] }, { results: Array<{ deploymentId: string } & ({ status: 'succeeded'; skill: Skill } | { status: 'failed'; message: string })>; originalFilesChanged: false }>;
+  'skills.ignore': Contract<{ deploymentIds: string[]; ignored: boolean }, { deployments: SkillDeployment[] }>;
+  'skills.metadata.save': Contract<{ ids: string[]; favorite?: boolean; tags?: string[] }, { skills: Skill[] }>;
+  'skills.check': Contract<{ skillId: string; batchId?: string; useCached?: boolean }, UpdateCheck>;
+  'skills.checkBatch.start': Contract<Empty, { batchId: string; concurrency: number }>;
+  'skills.checkBatch.finish': Contract<{ batchId: string }, Ok>;
+  'skills.files': Contract<{ skillId: string; deploymentId?: string }, { files: Array<{ path: string; size: number; previewable: boolean }> }>;
+  'skills.read': Contract<{ skillId: string; deploymentId?: string; path: string }, { path: string; content: string }>;
+  'skills.diff': Contract<{ checkId: string; locationId: string; path: string }, { path: string; oldText: string | null; newText: string | null }>;
+  'skills.install.preview': Contract<InstallRequest, SkillChangePlan>;
+  'skills.remove.preview': Contract<RemoveRequest, SkillChangePlan>;
+  'skills.update.preview': Contract<UpdateRequest, SkillChangePlan>;
+  'skills.delete.preview': Contract<DeleteRequest, SkillChangePlan>;
+  'skills.install': Contract<ExecuteRequest, ChangeResult>;
+  'skills.remove': Contract<ExecuteRequest, ChangeResult>;
+  'skills.update': Contract<ExecuteRequest, ChangeResult>;
+  'skills.delete': Contract<ExecuteRequest, ChangeResult>;
+  'skills.cancel': Contract<{ planId: string }, Ok>;
+  'backups.list': Contract<Empty, { backups: BackupRecord[] }>;
+  'backups.restore': Contract<{ id: string; confirmed: true }, ChangeResult>;
+}
+export type Method = keyof Contracts;
+export type Request<M extends Method> = Contracts[M]['request'];
+export type Response<M extends Method> = Contracts[M]['response'];
+export type DispatchCall<M extends Method = Method> = M extends Method ? ({} extends Request<M> ? [method: M, args?: Request<M>] : [method: M, args: Request<M>]) : never;

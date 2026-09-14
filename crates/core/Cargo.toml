@@ -1,0 +1,23 @@
+[package]
+name = "agenthub-core"
+version.workspace = true
+edition = "2021"
+description = "Local storage and discovery core for AgentHub"
+license = "MIT"
+
+[dependencies]
+anyhow = "1"
+chrono = { version = "0.4", features = ["serde", "clock"] }
+rusqlite = { version = "0.32", features = ["bundled"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml = "0.9"
+sha2 = "0.10"
+uuid = { version = "1", features = ["v4"] }
+walkdir = "2"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls"] }
+zip = { version = "2", default-features = false, features = ["deflate"] }
+
+[dev-dependencies]
+tempfile = "3"
+serial_test = "3"

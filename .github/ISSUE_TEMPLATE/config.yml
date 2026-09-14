@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: 私密安全反馈
+    url: mailto:admin@hifermin.com
+    about: 请勿公开尚未修复的漏洞或敏感数据。
+  - name: Private security report
+    url: mailto:admin@hifermin.com
+    about: Please do not post unfixed vulnerabilities or sensitive data publicly.

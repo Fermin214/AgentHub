@@ -1,0 +1,35 @@
+name: Bug report (English)
+description: Installation, usage, or recovery problems. Please report security issues privately using SECURITY.en.md.
+title: '[Bug] '
+body:
+  - type: input
+    id: version
+    attributes:
+      label: AgentHub version
+      placeholder: 0.1.0
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Windows version and package type
+      placeholder: Windows 11 25H2 x64, installer / portable ZIP
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+    validations:
+      required: true
+  - type: textarea
+    id: result
+    attributes:
+      label: Expected and actual results
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Redacted logs or screenshots
+      description: Remove tokens, personal paths, and private content. Do not upload real databases or Prompts.

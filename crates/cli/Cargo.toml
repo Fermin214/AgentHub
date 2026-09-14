@@ -1,0 +1,18 @@
+[package]
+name = "agenthub-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "agenthub-dev"
+path = "src/main.rs"
+
+[dependencies]
+agenthub-core = { path = "../core" }
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+serde_json = "1"
+
+[dev-dependencies]
+tempfile = "3"

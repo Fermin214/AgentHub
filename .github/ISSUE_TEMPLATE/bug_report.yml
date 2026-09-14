@@ -1,0 +1,35 @@
+name: 问题反馈
+description: 安装、使用或数据恢复问题（安全问题请按 SECURITY.md 私密报告）
+title: '[问题] '
+body:
+  - type: input
+    id: version
+    attributes:
+      label: AgentHub 版本
+      placeholder: 0.1.0
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Windows 版本与安装方式
+      placeholder: Windows 11 25H2 x64，安装包 / 便携 ZIP
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: 复现步骤
+    validations:
+      required: true
+  - type: textarea
+    id: result
+    attributes:
+      label: 预期与实际结果
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: 脱敏日志或截图
+      description: 删除令牌、个人路径和私密内容；不要上传真实数据库或 Prompt。

@@ -1,0 +1,45 @@
+import { render, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { beforeEach, expect, it, vi } from 'vitest';
+import * as api from './api';
+import { RepositoryManager } from './RepositoryManager';
+import type { Skill, SkillDeployment } from './types';
+beforeEach(()=>vi.restoreAllMocks());
+const source={kind:'git' as const,locator:'https://github.com/example/repo'};
+const repositories=[{id:'r1',source}];
+const candidates=[{name:'One',description:'first',subpath:'skills/one'},{name:'Two',description:'second',subpath:'skills/two',skillId:'s2'}];
+const saved:Skill={id:'s2',name:'Two',description:'second',path:'C:/library/two',source:{...source,subpath:'skills/two'},tags:[],favorite:false,createdAt:'',updatedAt:''};
+const installed={id:'d1',skillId:'s2',name:'Two',description:'second',agent:'codex',scope:'global' as const,path:'C:/agent/skills/two',source,owner:'atb',status:'installed',ignored:false,present:true} as SkillDeployment;
+const mock=(overrides:Record<string,unknown>={})=>vi.spyOn(api,'dispatch').mockImplementation(async (...[method]) =>(method in overrides?overrides[method]:({'repositories.list':{repositories},'targets.list':{targets:[{id:'codex',name:'Codex'}]},'sources.inspect':{inspectionId:'stage',candidates:structuredClone(candidates)}} as Record<string,unknown>)[method]??{}) as never);
+it('browses a saved repository, separates library membership from Agent installs, and installs nothing',async()=>{
+  const dispatch=mock();const onDelete=vi.fn();
+  render(<RepositoryManager skills={[saved]} deployments={[installed]} refresh={vi.fn().mockResolvedValue(undefined)} onDelete={onDelete} onClose={vi.fn()}/>);
+  await userEvent.click(await screen.findByRole('button',{name:'浏览 Skill'}));
+  expect(dispatch).toHaveBeenCalledWith('sources.inspect',{source});
+  const two=(await screen.findByText('Two')).closest('.import-skills__item')!;
+  expect(within(two as HTMLElement).getByText('已在 Skill 库')).toBeVisible();expect(within(two as HTMLElement).getByText('已安装到 Codex')).toBeVisible();
+  const one=screen.getByText('One').closest('.import-skills__item')!;
+  expect(within(one as HTMLElement).getByText('未在库')).toBeVisible();
+  await userEvent.click(screen.getByRole('button',{name:'从 Skill 库删除 Two'}));expect(onDelete).toHaveBeenCalledWith(saved);
+  expect(dispatch.mock.calls.some(([m])=>m.startsWith('skills.install')||m==='skills.delete')).toBe(false);
+});
+it('adds a browsed Skill to the library and releases the snapshot when collapsed',async()=>{
+  const dispatch=mock({'skills.add':{skill:{...saved,id:'s1',name:'One'}}});const refresh=vi.fn().mockResolvedValue(undefined);
+  const view=render(<RepositoryManager skills={[]} deployments={[]} refresh={refresh} onDelete={vi.fn()} onClose={vi.fn()}/>);
+  await userEvent.click(await screen.findByRole('button',{name:'浏览 Skill'}));
+  expect(await screen.findByRole('button',{name:'添加到 Skill 库 Two'})).toBeVisible();
+  await userEvent.click(screen.getByRole('button',{name:'添加到 Skill 库 One'}));
+  expect(dispatch).toHaveBeenCalledWith('skills.add',{inspectionId:'stage',subpath:'skills/one'});await waitFor(()=>expect(refresh).toHaveBeenCalledTimes(1));
+  view.rerender(<RepositoryManager skills={[{...saved,id:'s1',name:'One'}]} deployments={[]} refresh={refresh} onDelete={vi.fn()} onClose={vi.fn()}/>);
+  const one=screen.getByText('One').closest('.import-skills__item')!;
+  expect(within(one as HTMLElement).getByText('已在 Skill 库')).toBeVisible();expect(within(one as HTMLElement).getByText('未安装到任何 Agent')).toBeVisible();
+  await userEvent.click(screen.getByRole('button',{name:'收起'}));
+  expect(dispatch).toHaveBeenCalledWith('sources.release',{inspectionId:'stage'});expect(screen.queryByText('One')).not.toBeInTheDocument();
+});
+it('keeps a failed add visible without closing the repository list',async()=>{
+  vi.spyOn(api,'dispatch').mockImplementation(async (...[method]) =>{if(method==='skills.add')throw Error('同名 Skill 已存在');return (({'repositories.list':{repositories},'sources.inspect':{inspectionId:'stage',candidates:structuredClone(candidates)}} as Record<string,unknown>)[method]??{}) as never;});
+  render(<RepositoryManager skills={[]} deployments={[]} refresh={vi.fn()} onDelete={vi.fn()} onClose={vi.fn()}/>);
+  await userEvent.click(await screen.findByRole('button',{name:'浏览 Skill'}));
+  await userEvent.click(await screen.findByRole('button',{name:'添加到 Skill 库 One'}));
+  expect(await screen.findByRole('alert')).toHaveTextContent('同名 Skill 已存在');expect(screen.getByRole('button',{name:'添加到 Skill 库 One'})).toBeEnabled();
+});

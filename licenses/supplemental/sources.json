@@ -1,0 +1,62 @@
+[
+  {
+    "name": "alloc-stdlib",
+    "version": "0.2.4",
+    "url": "https://raw.githubusercontent.com/dropbox/rust-alloc-no-stdlib/ae42d22078b98549e987d2f03d12df7b984fde47/LICENSE"
+  },
+  {
+    "name": "clipboard-win",
+    "version": "5.4.1",
+    "url": "https://raw.githubusercontent.com/DoumanAsh/clipboard-win/3b27cf2bfd1adcfa6e0264eb51c1025ddaf0f342/LICENSE"
+  },
+  {
+    "name": "defmt-parser",
+    "version": "1.0.0",
+    "url": "https://raw.githubusercontent.com/knurling-rs/defmt/4a8cdb44891ed57b8ff5a023b6bec7137c48708f/LICENSE-MIT"
+  },
+  {
+    "name": "tauri-plugin",
+    "version": "2.6.3",
+    "url": "https://raw.githubusercontent.com/tauri-apps/tauri/6f6ab1207bb3923c2721fbc67d2fdb1c8deb0c7a/LICENSE_MIT"
+  },
+  {
+    "name": "unic-char-property",
+    "version": "0.9.0",
+    "url": "https://raw.githubusercontent.com/open-i18n/rust-unic/5878605364af97a3358368a6eaef02104af2e016/LICENSE-MIT"
+  },
+  {
+    "name": "unic-char-range",
+    "version": "0.9.0",
+    "url": "https://raw.githubusercontent.com/open-i18n/rust-unic/5878605364af97a3358368a6eaef02104af2e016/LICENSE-MIT"
+  },
+  {
+    "name": "unic-common",
+    "version": "0.9.0",
+    "url": "https://raw.githubusercontent.com/open-i18n/rust-unic/5878605364af97a3358368a6eaef02104af2e016/LICENSE-MIT"
+  },
+  {
+    "name": "unic-ucd-ident",
+    "version": "0.9.0",
+    "url": "https://raw.githubusercontent.com/open-i18n/rust-unic/8a6ce83063d90b91ae2ce59eddb803edd393fca9/LICENSE-MIT"
+  },
+  {
+    "name": "unic-ucd-version",
+    "version": "0.9.0",
+    "url": "https://raw.githubusercontent.com/open-i18n/rust-unic/5878605364af97a3358368a6eaef02104af2e016/LICENSE-MIT"
+  },
+  {
+    "name": "webview2-com",
+    "version": "0.38.2",
+    "url": "https://raw.githubusercontent.com/wravery/webview2-rs/b74dc5e2b394044bea5191052868ce7a106c202c/LICENSE"
+  },
+  {
+    "name": "webview2-com-macros",
+    "version": "0.8.1",
+    "url": "https://raw.githubusercontent.com/wravery/webview2-rs/dffa41a8a46d3f5565eefbff2de57d38d399f158/LICENSE"
+  },
+  {
+    "name": "webview2-com-sys",
+    "version": "0.38.2",
+    "url": "https://raw.githubusercontent.com/wravery/webview2-rs/b74dc5e2b394044bea5191052868ce7a106c202c/LICENSE"
+  }
+]

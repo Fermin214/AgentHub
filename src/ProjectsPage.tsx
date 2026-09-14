@@ -1,0 +1,30 @@
+import { useState } from 'react';
+import { open } from '@tauri-apps/plugin-dialog';
+import * as api from './api';
+import { displayPath } from './displayPath';
+import { ProjectUpdateDialog } from './ProjectUpdateDialog';
+import { ProjectUpdateControl } from './ProjectUpdateControl';
+import { RepositoryBookmarks } from './RepositoryBookmarks';
+import { Button, Modal, PageHeader, TabList, SearchField } from './ui';
+import { useT } from './i18n';
+import type { DispatchCall } from './contracts';
+import type { LocalProject, UpdateCheck } from './types';
+type Draft = {id?:string;name:string;path:string;archived?:boolean};
+export function ProjectsPage({projects,dataScope,refresh,onManageSkills,updates=[]}:{projects:LocalProject[];updates?:UpdateCheck[];dataScope:string;refresh:()=>Promise<void>;onManageSkills:(id:string)=>void}) {
+  const t=useT();
+  const [trusting,setTrusting]=useState<LocalProject>();
+  const [tab,setTab]=useState('local');const [addBookmark,setAddBookmark]=useState(0);const [query,setQuery]=useState('');const [editing,setEditing]=useState<Draft>();const [checking,setChecking]=useState<LocalProject>();const [deleting,setDeleting]=useState<LocalProject>();const [busy,setBusy]=useState(false);const [error,setError]=useState('');
+  const work=async(...call:DispatchCall<'projects.save'|'projects.delete'|'projects.archive'|'projects.trust'>)=>{setBusy(true);setError('');try{await api.dispatch(...call);await refresh();setEditing(undefined);setDeleting(undefined);setTrusting(undefined);}catch(e){setError(String(e));}finally{setBusy(false);}};
+  const visible=projects.filter(p=>p.archived===(tab==='archived')&&[p.name,p.path].join(' ').toLowerCase().includes(query.toLowerCase()));
+  return <><PageHeader title={t('projects.title')} description={t('projects.description')} action={tab==='bookmarks'?<Button variant="primary" onClick={()=>setAddBookmark(v=>v+1)}>{t('projects.addBookmark')}</Button>:tab==='local'?<Button variant="primary" onClick={()=>{setEditing({name:'',path:''});setError('');}}>{t('projects.addLocal')}</Button>:undefined}/><TabList id="projects" label={t('projects.tabs')} value={tab} items={['local','bookmarks','archived'].map(id=>({id,label:t('projects.tab.'+id)}))} onChange={id=>{setTab(id);setAddBookmark(0);}}/>
+    <div role="tabpanel" id="projects-panel" aria-labelledby={`projects-tab-${tab}`}>
+    {tab==='local'&&<><div className="toolbar"><SearchField label={t('projects.search')} placeholder={t('projects.searchPlaceholder')} value={query} onChange={setQuery}/></div>{visible.map(p=><article className="bookmark-row" key={p.id}><div><h3>{p.name}</h3><p className="library-path">{displayPath(p.path)}</p>{!p.archived&&<ProjectUpdateControl project={p} update={updates.find(u=>u.projectId===p.id)} onOpen={()=>setChecking(p)}/>}</div><div className="library-actions"><Button disabled={busy} onClick={()=>{setError('');if(p.gitTrusted)void work('projects.trust',{projectId:p.id,path:p.path,trusted:false});else setTrusting(p);}}>{t(p.gitTrusted?'projects.revokeTrust':'projects.trustGit')}</Button>{!p.archived&&<Button onClick={()=>onManageSkills(p.id)}>{t('projects.manageSkills')}</Button>}<Button disabled={busy} onClick={()=>{setEditing({...p});setError('');}}>{t('common.edit')}</Button><Button disabled={busy} onClick={()=>void work('projects.archive',{projectId:p.id,archived:!p.archived})}>{p.archived?t('common.unarchive'):t('common.archive')}</Button><Button disabled={busy} onClick={()=>setDeleting(p)}>{t('projects.deleteRecord')}</Button></div></article>)}{!visible.length&&<p className="empty-state">{t('projects.empty')}</p>}</>}
+    {(tab==='bookmarks'||tab==='archived')&&<RepositoryBookmarks addRequest={addBookmark} key={tab} projects={projects} dataScope={dataScope} archived={tab==='archived'} refresh={refresh} onEditProject={p=>{setEditing({...p});setError('');}} onDeleteProject={setDeleting}/>}
+    {error&&!editing&&!deleting&&!trusting&&<p role="alert" className="text-error">{t.backend(error)}</p>}
+    </div>
+    {editing&&<Modal title={editing.id?t('projects.edit'):t('projects.addLocal')} onClose={busy?()=>{}:()=>setEditing(undefined)} footer={<Button variant="primary" loading={busy} disabled={!editing.path.trim()} onClick={()=>void work('projects.save',{project:editing})}>{t('projects.save')}</Button>}><label className="field"><span>{t('projects.nameOptional')}</span><input value={editing.name} onChange={e=>setEditing({...editing,name:e.target.value})}/></label><label className="field"><span>{t('projects.folder')}</span><div className="add-skill__source"><input value={editing.path} onChange={e=>setEditing({...editing,path:e.target.value})}/><Button onClick={()=>{if(api.isTauriRuntime())void open({directory:true,multiple:false}).then(p=>{if(typeof p==='string')setEditing(v=>v?{...v,path:p}:v);}).catch(e=>setError(String(e)));else setError(t('common.desktopOnlyFolder'));}}>{t('common.chooseFolder')}</Button></div></label>{error&&<p role="alert" className="text-error">{t.backend(error)}</p>}</Modal>}
+    {deleting&&<Modal title={t('projects.delete.title',{name:deleting.name})} onClose={busy?()=>{}:()=>setDeleting(undefined)} footer={<Button variant="danger" loading={busy} onClick={()=>void work('projects.delete',{projectId:deleting.id})}>{t('projects.delete.confirm')}</Button>}><p>{t('projects.delete.body')}</p>{error&&<p role="alert" className="text-error">{t.backend(error)}</p>}</Modal>}
+    {trusting&&<Modal title={t('projects.trustTitle')} onClose={busy?()=>{}:()=>setTrusting(undefined)} footer={<Button variant="primary" loading={busy} onClick={()=>void work('projects.trust',{projectId:trusting.id,path:trusting.path,trusted:true,confirmed:true})}>{t('projects.trustConfirm')}</Button>}><p>{t('projects.trustBody')}</p><p className="library-path">{displayPath(trusting.path)}</p><p>{t('projects.trustScope')}</p>{error&&<p role="alert" className="text-error">{t.backend(error)}</p>}</Modal>}
+    {checking&&<ProjectUpdateDialog project={checking} onClose={()=>setChecking(undefined)} onManageSkills={()=>{onManageSkills(checking.id);setChecking(undefined);}}/>}
+  </>;
+}

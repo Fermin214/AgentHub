@@ -1,0 +1,101 @@
+name: Windows checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rust:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      CARGO_TERM_COLOR: always
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Select release Rust MSVC
+        run: |
+          rustup toolchain install 1.98.1 --profile minimal --no-self-update
+          if ($LASTEXITCODE -ne 0) { throw 'Rust installation failed' }
+          rustup default 1.98.1
+          if ($LASTEXITCODE -ne 0) { throw 'Rust selection failed' }
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: windows-msvc
+      - name: Verify core and internal CLI independently of npm
+        run: cargo test -p agenthub-core -p agenthub-cli --no-fail-fast
+  frontend:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+  package:
+    needs: [rust, frontend]
+    runs-on: windows-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+      - name: Select release Rust MSVC
+        run: |
+          rustup toolchain install 1.98.1 --profile minimal --no-self-update
+          if ($LASTEXITCODE -ne 0) { throw 'Rust installation failed' }
+          rustup default 1.98.1
+          if ($LASTEXITCODE -ne 0) { throw 'Rust selection failed' }
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: windows-package
+      - run: npm ci
+      - name: Verify release versions and license inventory
+        run: node scripts/verify-release.mjs
+      - run: ./scripts/build.ps1 -Installer
+      - run: ./scripts/package-portable.ps1 -SkipBuild
+      - name: Verify portable package layout
+        run: |
+          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          node scripts/verify-portable.mjs "dist-portable/AgentHub-$version-windows-x64"
+          if ($LASTEXITCODE -ne 0) { throw 'Portable layout verification failed' }
+      - name: Save candidate and checksums from this commit
+        id: candidate
+        run: |
+          ./scripts/prepare-candidate.ps1
+          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          "version=$version" >> $env:GITHUB_OUTPUT
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AgentHub-${{ steps.candidate.outputs.version }}-windows-x64-candidate
+          path: output/release-candidate/*
+          if-no-files-found: error
+          retention-days: 30
