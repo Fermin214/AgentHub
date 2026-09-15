@@ -1,0 +1,18 @@
+[
+  {"id":"rust","profile":"PullRequest","coverage":"Rust workspace tests"},
+  {"id":"frontend","profile":"PullRequest","coverage":"Vitest frontend tests"},
+  {"id":"production-build","profile":"PullRequest","coverage":"TypeScript and Vite production build"},
+  {"id":"ui-smoke","profile":"PullRequest","coverage":"Fixed frontend fixture: tags, icons, scroll, source link, minimum window, cancellation/retry, bookmark hit area"},
+  {"id":"candidate-integrity","profile":"Release","coverage":"Manifest, checksums and immutable candidate bytes"},
+  {"id":"cleanup-failure-probe","profile":"Release","coverage":"Controlled post-install failure returns nonzero and restores the clean baseline in finally"},
+  {"id":"installer-lifecycle","profile":"Release","coverage":"Fresh install, same-version reinstall, uninstall retention, reinstall reads, native four-page smoke, existing WebView2"},
+  {"id":"portable-relocation","profile":"Release","coverage":"Native A-to-B relocation, Skill install and backup restore, unchanged external files"},
+  {"id":"upgrade","profile":"Release","coverage":"Published base installer and matching fixture CLI to candidate upgrade"},
+  {"id":"installer-languages","profile":"Release","coverage":"English/Chinese maintenance, downgrade and running warnings, cancel retention"},
+  {"id":"webview-missing","profile":"Release","coverage":"Portable and installer behavior on a clean VM without WebView2"},
+  {"id":"webview-download-failure-recovery","profile":"Release","coverage":"Offline failure then online recovery on a dedicated runtime-free VM snapshot"},
+  {"id":"browser-download-startup","profile":"Release","coverage":"Real Edge download, hash and Mark of the Web, publisher prompts and actual startup"},
+  {"id":"native-ui-details","profile":"Release","coverage":"Packaged WebView2 minimum window, keyboard scroll, source cancellation/retry, links and click targets"},
+  {"id":"cleanup","profile":"Release","coverage":"Owned processes, scheduled task, installation, registry, proxy and WebView2 restoration"},
+  {"id":"candidate-unchanged","profile":"Release","coverage":"Candidate hashes after all tests"}
+]

@@ -24,6 +24,8 @@ node scripts/verify-release.mjs
 
 Use `cargo test -p agenthub-core <test_name>` or `npx vitest run src/App.test.tsx` for focused checks. Use temporary directories and fictional test data, rather than real Agent or project files.
 
+For a repeatable report including Edge UI smoke tests, run `pwsh -NoProfile -File scripts/acceptance.ps1 -Profile PullRequest`. The [acceptance guide](docs/acceptance-automation.md) covers prerequisites, protected VM release testing, structured results and recovery. Release testing never runs destructive scenarios on the development host.
+
 ## Submitting a change
 
 Explain the problem, the resulting behavior, and how you validated it. For interface changes, a screenshot with example data is helpful. Run relevant tests before submitting; code changes should also pass the unified test script. Use `fix:`, `feat:`, `docs:`, or `chore:` in commit titles.

@@ -1,7 +1,10 @@
-param(
+﻿param(
     [Parameter(Mandatory=$true)][string]$Case,
     [Parameter(Mandatory=$true)][string]$Installer,
     [Parameter(Mandatory=$true)][string]$Cli,
+    [string]$UpgradeInstaller,
+    [string]$UpgradeCli,
+    [switch]$InjectFailureAfterInstall,
     [string]$Root = 'C:\AgentHub-VM-Test'
 )
 # Run in the logged-in desktop of the disposable Windows VM, never on the host.
@@ -15,8 +18,12 @@ $reportPath = Join-Path $Root ('evidence/' + $Case + '.json')
 $report = [ordered]@{case=$Case;status='running';startedAt=(Get-Date).ToUniversalTime().ToString('o');steps=@();screens=@()}
 $rememberedKey = 'HKCU:\Software\agenthub\AgentHub'
 $app = $null
+$reportReady = $false
+$ownsInstallation = $false
+$previousWebviewArguments = $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS
+. (Join-Path $PSScriptRoot 'acceptance/vm-safety.ps1')
 function Write-Json($Value, [string]$Path) { [IO.File]::WriteAllText($Path, ($Value | ConvertTo-Json -Depth 80), $utf8) }
-function Save-Report { Write-Json $report $reportPath }
+function Save-Report { if($reportReady){Write-Json $report $reportPath} }
 function Step([string]$Text) { $report.steps += $Text; Save-Report }
 function Registrations {
     @(Get-ChildItem 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall' | Get-ItemProperty | Where-Object { $_.PSChildName -eq 'AgentHub' -or $_.DisplayName -eq 'AgentHub' })
@@ -162,12 +169,19 @@ function Uninstall {
     Step 'Ordinary uninstall removed executable, registration and shortcuts; database hash was unchanged before any CLI read'
 }
 try {
+    Assert-TestDesktop
     if($env:COMPUTERNAME -ne 'TEST' -or $env:USERNAME -ne 'Try' -or [Diagnostics.Process]::GetCurrentProcess().SessionId -eq 0){throw 'Requires the authorized TEST/Try interactive VM session'}
     if([IO.Path]::GetFullPath($Root) -ne 'C:\AgentHub-VM-Test' -or $Case -notmatch '^[a-z0-9-]+$'){throw 'Invalid VM fixture root or case'}
-    if(Test-Path -LiteralPath $caseRoot){throw 'Case already exists; preserve evidence and use a new case name'}
+    if((Test-Path -LiteralPath $caseRoot) -or (Test-Path -LiteralPath $reportPath)){throw 'Case already exists; preserve evidence and use a new case name'}
     if(@(Registrations).Count -gt 0){throw 'Existing installation must be handled before this independent case'}
     if(Test-Path -LiteralPath $rememberedKey){throw 'Initial remembered installation state must be empty'}
+    [void](Assert-AcceptancePath $caseRoot $Root)
+    Assert-CleanTestInstallation
     New-Item -ItemType Directory -Force -Path $caseRoot,(Join-Path $Root 'evidence') | Out-Null
+    $reportReady=$true
+    $expectedRoot=Join-Path $env:LOCALAPPDATA 'AgentHub'
+    Write-Json @{installRoot=$expectedRoot;caseRoot=$caseRoot} (Join-Path $caseRoot 'installation-owner.json')
+    $ownsInstallation=$true
     $os=Get-CimInstance Win32_OperatingSystem
     $report.environment=@{computer=$env:COMPUTERNAME;user=$env:USERNAME;os=$os.Caption;version=$os.Version;session=[Diagnostics.Process]::GetCurrentProcess().SessionId;webview=@(Get-ChildItem 'C:\Program Files (x86)\Microsoft\EdgeWebView\Application' -Directory | Select-Object -ExpandProperty Name)}
     $report.installer=@{path=$Installer;sha256=(Get-FileHash -LiteralPath $Installer -Algorithm SHA256).Hash;signature=(Get-AuthenticodeSignature -LiteralPath $Installer).Status.ToString()}
@@ -187,6 +201,7 @@ public static class VmWindowCapture {
 }
 '@
     Run-Installer $Installer
+    if($InjectFailureAfterInstall){throw 'ACCEPTANCE_EXPECTED_FAILURE_AFTER_INSTALL'}
     $initialRoot=$installRoot
     $expectedRoot=Join-Path $env:LOCALAPPDATA $report.registration.DisplayName
     if($installRoot -ne $expectedRoot){throw "Fresh default directory differs: $installRoot versus $expectedRoot"}
@@ -219,6 +234,13 @@ public static class VmWindowCapture {
     Write-Json $baseline (Join-Path $caseRoot 'baseline-data.json')
     Probe-Desktop 'seeded' $true
     Probe-Desktop 'relaunch' $true
+    if($UpgradeInstaller){
+        if(-not $UpgradeCli -or ((& $UpgradeCli --version) -join '') -ne ('agenthub-dev '+(Get-Item -LiteralPath $UpgradeInstaller).VersionInfo.ProductVersion)){throw 'Upgrade CLI version mismatch'}
+        $Installer=$UpgradeInstaller;$script:activeCli=$UpgradeCli
+        Run-Installer $Installer
+        Probe-Desktop 'upgraded-from-base' $true
+        Assert-Data 'upgrade-from-base'
+    }
     Run-Installer $Installer
     if($installRoot -ne $initialRoot){throw 'Same-version reinstall changed directory'}
     Assert-Data 'same-version-reinstall'
@@ -230,22 +252,16 @@ public static class VmWindowCapture {
     Assert-Data 'reinstall-after-uninstall'
     Uninstall
     Assert-Data 'final-uninstall'
-    # Only the test-created remembered value is removed; all retained fixture data stays as evidence.
-    if((Get-Item -LiteralPath $rememberedKey).GetValue('') -ne $initialRoot){throw 'Unexpected remembered state during cleanup'}
-    $key=[Microsoft.Win32.Registry]::CurrentUser.OpenSubKey('Software\agenthub\AgentHub',$true)
-    try{$key.DeleteValue('', $false)}finally{$key.Dispose()}
-    $remaining=Get-Item -LiteralPath $rememberedKey
-    if($remaining.ValueCount -eq 0 -and $remaining.SubKeyCount -eq 0){Remove-Item -LiteralPath $rememberedKey}
-    $retainedDestination=Join-Path $caseRoot 'retained-installation'
-    $resolvedInstall=(Resolve-Path -LiteralPath $initialRoot).Path
-    if($resolvedInstall -ne $expectedRoot -or -not $retainedDestination.StartsWith($caseRoot+'\') -or (Test-Path -LiteralPath $retainedDestination)){throw 'Unsafe fixture evidence move'}
-    Move-Item -LiteralPath $resolvedInstall -Destination $retainedDestination
-    $report.retainedData=$retainedDestination
     $report.status='passed'
 }catch{
     $report.status='failed';$report.error=$_.ToString();$report.stack=$_.ScriptStackTrace
 }finally{
-    if($app -and -not $app.HasExited){try{Close-Desktop}catch{$report.closeError=$_.ToString()}}
+    if($app -and -not $app.HasExited){try{Close-Desktop}catch{$report.status='failed';$report.closeError=$_.ToString();$app.Kill();$app.WaitForExit()}}
+    if($ownsInstallation){
+        try{Remove-OwnedTestInstallation $expectedRoot $caseRoot;$report.cleanup=@{status='passed';retainedData=(Join-Path $caseRoot 'retained-installation')}}
+        catch{$report.status='failed';$report.cleanup=@{status='failed';error=$_.ToString()}}
+    }
+    $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=$previousWebviewArguments
     $report.finishedAt=(Get-Date).ToUniversalTime().ToString('o')
     Save-Report
 }

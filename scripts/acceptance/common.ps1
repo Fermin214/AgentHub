@@ -1,0 +1,84 @@
+# Shared host/VM reporting and validation. Windows PowerShell 5.1 compatible.
+$ErrorActionPreference = 'Stop'
+function Invoke-AcceptanceProcess([string]$Executable, [string[]]$Arguments, [string]$Log) {
+    if (-not (Get-Command $Executable -ErrorAction SilentlyContinue)) { throw "Executable unavailable: $Executable" }
+    $previousAction=$ErrorActionPreference
+    try {
+        # Windows PowerShell maps native stderr to ErrorRecord. Inspect the actual
+        # exit code after redirection, including deliberately failing self-tests.
+        $ErrorActionPreference='Continue'
+        & $Executable @Arguments *> $Log
+        return $LASTEXITCODE
+    } finally { $ErrorActionPreference=$previousAction }
+}
+function Write-AcceptanceJson($Value, [string]$Path) {
+    [IO.File]::WriteAllText($Path, ($Value | ConvertTo-Json -Depth 80), (New-Object Text.UTF8Encoding($false)))
+}
+function Assert-AcceptancePath([string]$Path, [string]$Parent) {
+    $full = [IO.Path]::GetFullPath($Path)
+    $boundary = [IO.Path]::GetFullPath($Parent).TrimEnd('\', '/')
+    if ($full -ne $boundary -and -not $full.StartsWith($boundary + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) { throw "Path escapes owned directory: $full" }
+    $cursor = $full
+    while ($cursor) {
+        if ((Test-Path -LiteralPath $cursor) -and ((Get-Item -LiteralPath $cursor -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw "Linked path is not allowed: $cursor" }
+        $cursor = Split-Path $cursor -Parent
+    }
+    return $full
+}
+function Get-CandidateProof([string]$Directory) {
+    $root = Assert-AcceptancePath $Directory $Directory
+    $manifestPath = Assert-AcceptancePath (Join-Path $root 'build-manifest.json') $root
+    $manifest = [IO.File]::ReadAllText($manifestPath) | ConvertFrom-Json
+    if ($manifest.product -ne 'AgentHub' -or $manifest.sourceCommit -notmatch '^[a-f0-9]{40}$' -or $manifest.version -notmatch '^\d+\.\d+\.\d+$') { throw 'Invalid candidate provenance' }
+    $expectedNames = @("AgentHub_$($manifest.version)_x64-setup.exe", "AgentHub-$($manifest.version)-windows-x64.zip")
+    if (@($manifest.files).Count -ne 2 -or @($manifest.files.name | Select-Object -Unique).Count -ne 2) { throw 'Expected two distinct distribution entries' }
+    $hashes = @()
+    foreach ($name in @($expectedNames + 'build-manifest.json' + 'SHA256SUMS.txt')) {
+        $path = Assert-AcceptancePath (Join-Path $root $name) $root
+        $file = Get-Item -LiteralPath $path
+        $hashes += [ordered]@{name=$name; bytes=$file.Length; sha256=(Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()}
+    }
+    foreach ($entry in $manifest.files) {
+        if ($entry.name -cnotin $expectedNames) { throw 'Unexpected candidate entry' }
+        $actual = @($hashes | Where-Object { $_.name -ceq $entry.name })
+        if ($actual.Count -ne 1 -or $actual[0].sha256 -ne $entry.sha256 -or $actual[0].bytes -ne $entry.bytes) { throw "Candidate mismatch: $($entry.name)" }
+    }
+    $lines = @([IO.File]::ReadAllLines((Join-Path $root 'SHA256SUMS.txt')) | Where-Object { $_.Trim() })
+    if ($lines.Count -ne 3) { throw 'Expected three checksum entries' }
+    $seen = @{}
+    foreach ($line in $lines) {
+        if ($line -notmatch '^([a-fA-F0-9]{64})  ([^/\\]+)$') { throw 'Invalid checksum line' }
+        $hash = $Matches[1]; $name = $Matches[2]
+        if ($seen.ContainsKey($name) -or $name -eq 'SHA256SUMS.txt') { throw 'Duplicate or unexpected checksum entry' }
+        $seen[$name] = $true
+        $actual = @($hashes | Where-Object { $_.name -ceq $name })
+        if ($actual.Count -ne 1 -or $actual[0].sha256 -ne $hash) { throw "Checksum mismatch: $name" }
+    }
+    if (@($seen.Keys | Where-Object { $_ -in @($expectedNames + 'build-manifest.json') }).Count -ne 3) { throw 'Incomplete candidate checksum coverage' }
+    return [ordered]@{sourceCommit=$manifest.sourceCommit; version=$manifest.version; ciRunId=$manifest.ciRunId; repository=$manifest.repository; files=$hashes}
+}
+function Get-AcceptanceExitCode($Scenarios) {
+    if (@($Scenarios | Where-Object { $_.status -eq 'failed' }).Count) { return 1 }
+    if (@($Scenarios | Where-Object { $_.status -ne 'passed' }).Count) { return 2 }
+    return 0
+}
+function Assert-NativeAcceptanceResult($Record, [int]$ExitCode, [string]$Case, [switch]$ExpectedFailure) {
+    if ($Record.case -ne $Case) { throw 'Native evidence case ID mismatch' }
+    if ($ExpectedFailure) {
+        if ($ExitCode -eq 0 -or $Record.status -ne 'failed' -or $Record.error -ne 'ACCEPTANCE_EXPECTED_FAILURE_AFTER_INSTALL' -or $Record.cleanup.status -ne 'passed') { throw 'Expected controlled failure with successful finally cleanup' }
+    } elseif ($ExitCode -ne 0 -or $Record.status -ne 'passed') { throw "Native scenario did not pass (exit $ExitCode)" }
+}
+function New-AcceptanceResult([string]$Id, [string]$Status, [string]$Reason, [string]$StartedAt, $Evidence=@()) {
+    if ($Status -notin @('passed','failed','not-run','environment-blocked')) { throw 'Invalid scenario status' }
+    return [ordered]@{id=$Id; status=$Status; reason=$Reason; startedAt=$StartedAt; finishedAt=[DateTime]::UtcNow.ToString('o'); evidence=@($Evidence)}
+}
+function Write-AcceptanceReport($Report, [string]$Directory) {
+    $Report.finishedAt = [DateTime]::UtcNow.ToString('o')
+    $Report.exitCode = Get-AcceptanceExitCode $Report.scenarios
+    $Report.status = if ($Report.exitCode -eq 0) {'passed'} elseif ($Report.exitCode -eq 1) {'failed'} else {'incomplete'}
+    Write-AcceptanceJson $Report (Join-Path $Directory 'acceptance.json')
+    $lines = @('# AgentHub acceptance', '', "Profile: $($Report.profile)", "Status: **$($Report.status)** (exit $($Report.exitCode))", "Harness commit: $($Report.sourceCommit)", "Working tree clean: $($Report.workingTreeClean)", "Started: $($Report.startedAt)", "Finished: $($Report.finishedAt)", '', '| Scenario | Status | Reason |', '| --- | --- | --- |')
+    foreach ($row in $Report.scenarios) { $lines += "| $($row.id) | $($row.status) | $(($row.reason -replace '\|','/' -replace '[\r\n]+',' ')) |" }
+    $lines += @('', 'See acceptance.json for timestamps and evidence. Fixture UI smoke uses a simulated transport; native release scenarios test packaged binaries.', 'Blocked or unrun release scenarios need follow-up before claiming full release acceptance. This command never publishes a release.')
+    [IO.File]::WriteAllLines((Join-Path $Directory 'acceptance.md'), [string[]]$lines, (New-Object Text.UTF8Encoding($false)))
+}

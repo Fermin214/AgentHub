@@ -15,12 +15,32 @@ TypeScript uses two-space indentation, single quotes, and semicolons. Use Pascal
 
 The interface and README support Chinese and English. Other project documentation is maintained in English. Keep facts, links, and feature scope aligned between README translations.
 
-Run checks appropriate to the change. Run `scripts/test.ps1` before submitting code changes; desktop-host and installer changes also need `scripts/build.ps1 -Installer`. Plain `cargo test` uses core and CLI as its default members; `cargo test --workspace` includes the desktop crate. Small, reversible documentation or style changes do not need tests that simply restate the implementation.
+Use focused tests while developing. Before submitting executable code changes, run:
+
+```powershell
+pwsh -NoProfile -File scripts/acceptance.ps1 -Profile PullRequest
+```
+
+This is the default unified validation entry point for the Rust workspace, frontend tests, TypeScript/production build, and deterministic UI smoke checks. Small, reversible documentation-only changes may use narrower validation when they do not affect executable contracts.
+
+When changing the acceptance harness, report schema, safety guards, cleanup behavior, or exit-code rules, also run:
+
+```powershell
+pwsh -NoProfile -File scripts/acceptance/self-test.ps1
+```
+
+Desktop-host and installer changes also need `scripts/build.ps1 -Installer`. Plain `cargo test` uses core and CLI as its default members; `cargo test --workspace` includes the desktop crate.
+
+Desktop-host, installer, packaging, storage, upgrade, backup/recovery, portable-data, or startup changes require the relevant protected Release validation described in [acceptance automation](docs/acceptance-automation.md) and [release testing](docs/release-testing.md). Never run destructive Release scenarios on a personal development host.
+
+Acceptance exit codes are contractual: `0` means all selected scenarios passed, `1` means failure including cleanup failure, and `2` means incomplete because a scenario is `not-run` or `environment-blocked`. Never mask, rewrite, or describe exit `2` as complete acceptance.
 
 Keep versions synchronized in package.json, Cargo.toml, src-tauri/tauri.conf.json, and lockfiles. Check them with `scripts/verify-release.mjs`.
 
 ## Release validation
 
-Release files must be traceable to a source commit, successful CI, and acceptance of those exact files. Building successfully does not establish installer-lifecycle acceptance. See [release testing](docs/release-testing.md).
+Release files must be traceable to a source commit, successful CI, and acceptance of those exact files. Building successfully does not establish installer-lifecycle acceptance. Rebuilding or replacing a candidate requires updated checksums and renewed acceptance of the affected scenarios before publication.
+
+The standard Release profile deliberately leaves missing-WebView2 behavior, runtime download failure/recovery, real browser download/security prompts, and detailed packaged native UI review for the [manual Windows runbook](docs/acceptance-manual.md). Full release acceptance combines the automated report with those operator records. Do not edit automated results to green and do not publish GitHub Releases automatically.
 
 Read the [product scope](docs/product-scope.md) and [domain contract](docs/domain-contract.md) before changing product behavior. Use the [glossary](docs/glossary.md) for interface wording. Documentation describes current behavior; code contracts and serialization types define the actual fields.
