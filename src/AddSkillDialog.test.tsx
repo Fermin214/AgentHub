@@ -8,6 +8,7 @@ const skill:Skill={id:'canvas',name:'json-canvas',description:'',source:{kind:'u
 beforeEach(()=>vi.restoreAllMocks());
 it('shows only the current Skill and waits for Save before binding its source',async()=>{
   const dispatch=vi.spyOn(api,'dispatch').mockImplementation(async (...[method]) =>{
+    if(method==='sources.begin')return {requestId:'request'} as never;
     if(method==='repositories.list')return {repositories:[]} as never;
     if(method==='sources.inspect')return {inspectionId:'inspection',source:{kind:'git',locator:'https://github.com/kepano/obsidian-skills'},candidates:[{name:'json-canvas',subpath:'skills/json-canvas'},{name:'obsidian-bases',subpath:'skills/obsidian-bases'}]} as never;
     return {} as never;
@@ -27,7 +28,7 @@ it('shows only the current Skill and waits for Save before binding its source',a
 });
 
 it('leaves different same-name directories selectable instead of guessing a source',async()=>{
-  const dispatch=vi.spyOn(api,'dispatch').mockImplementation(async (...[method]) =>method==='repositories.list'?{repositories:[]} as never:method==='sources.inspect'?{inspectionId:'inspection',source:{kind:'git',locator:'https://github.com/example/repo'},candidates:[{name:'json-canvas',subpath:'skills/json-canvas'},{name:'json-canvas',subpath:'plugins/canvas/skills/json-canvas'}]} as never:{} as never);
+  const dispatch=vi.spyOn(api,'dispatch').mockImplementation(async (...[method]) =>method==='sources.begin'?{requestId:'request'} as never:method==='repositories.list'?{repositories:[]} as never:method==='sources.inspect'?{inspectionId:'inspection',source:{kind:'git',locator:'https://github.com/example/repo'},candidates:[{name:'json-canvas',subpath:'skills/json-canvas'},{name:'json-canvas',subpath:'plugins/canvas/skills/json-canvas'}]} as never:{} as never);
   render(<AddSkillDialog deployments={[]} bindSkill={skill} refresh={vi.fn()} onClose={vi.fn()}/>);
   await userEvent.type(screen.getByLabelText('Skill 来源'),'example/repo');
   await userEvent.click(screen.getByRole('button',{name:'查找来源'}));
@@ -40,6 +41,7 @@ it('leaves different same-name directories selectable instead of guessing a sour
 const inspection={inspectionId:'stage',source:{kind:'git',locator:'https://github.com/example/repo'},candidates:[{name:'One',description:'first',subpath:'one'},{name:'Two',description:'second',subpath:'two'}]};
 it('adds multiple selected Skills, keeps completed items on failure, and retries only failed items',async()=>{
   let failed=false;const dispatch=vi.spyOn(api,'dispatch').mockImplementation(async (...[method,args]) =>{
+    if(method==='sources.begin')return {requestId:'request'} as never;
     if(method==='repositories.list')return {repositories:[]} as never;
     if(method==='sources.inspect')return structuredClone(inspection) as never;
     if(method==='skills.add'&&args?.subpath==='two'&&!failed){failed=true;throw Error('second failed');}
@@ -54,8 +56,40 @@ it('adds multiple selected Skills, keeps completed items on failure, and retries
 });
 it('releases source inspection that finishes after the dialog unmounts',async()=>{
   let resolve!:(value:typeof inspection)=>void;const pending=new Promise<typeof inspection>(r=>{resolve=r;});
-  const dispatch=vi.spyOn(api,'dispatch').mockImplementation(async (...[method]) =>method==='sources.inspect'?await pending as never:{repositories:[]} as never);
+  const dispatch=vi.spyOn(api,'dispatch').mockImplementation(async (...[method]) =>method==='sources.begin'?{requestId:'request'} as never:method==='sources.inspect'?await pending as never:{repositories:[]} as never);
   const view=render(<AddSkillDialog deployments={[]} refresh={vi.fn()} onClose={vi.fn()}/>);
   await userEvent.type(screen.getByLabelText('Skill 来源'),'example/repo');await userEvent.click(screen.getByRole('button',{name:'查找 Skill'}));view.unmount();
   await act(async()=>resolve(structuredClone(inspection)));expect(dispatch).toHaveBeenCalledWith('sources.release',{inspectionId:'stage'});
+});
+
+it('Escape cancels an inspection but cannot close a pending save', async () => {
+  let resolveInspection!:(value:typeof inspection)=>void;
+  let resolveSave!:(value:unknown)=>void;
+  const pendingInspection = new Promise<typeof inspection>(resolve => { resolveInspection = resolve; });
+  const pendingSave = new Promise(resolve => { resolveSave = resolve; });
+  const dispatch = vi.spyOn(api, 'dispatch').mockImplementation(async (...[method]) => {
+    if (method === 'sources.begin') return { requestId: 'request' } as never;
+    if (method === 'sources.inspect') return await pendingInspection as never;
+    if (method === 'skills.add') return await pendingSave as never;
+    return { repositories: [] } as never;
+  });
+  const close = vi.fn();
+  const view = render(<AddSkillDialog deployments={[]} refresh={vi.fn().mockResolvedValue(undefined)} onClose={close}/>);
+  await userEvent.type(screen.getByLabelText('Skill 来源'), 'example/repo');
+  await userEvent.click(screen.getByRole('button', { name: '查找 Skill' }));
+  await userEvent.keyboard('{Escape}');
+  await waitFor(() => expect(close).toHaveBeenCalledOnce());
+  expect(dispatch).toHaveBeenCalledWith('sources.cancel', { requestId: 'request' });
+  view.unmount();
+  await act(async () => resolveInspection(structuredClone(inspection)));
+  close.mockClear();
+  render(<AddSkillDialog deployments={[]} refresh={vi.fn().mockResolvedValue(undefined)} onClose={close}/>);
+  await userEvent.type(screen.getByLabelText('Skill 来源'), 'example/repo');
+  await userEvent.click(screen.getByRole('button', { name: '查找 Skill' }));
+  await userEvent.click(await screen.findByLabelText('全选找到的 Skill'));
+  await userEvent.click(screen.getByRole('button', { name: '添加到 Skill 库 (2)' }));
+  await userEvent.keyboard('{Escape}');
+  expect(close).not.toHaveBeenCalled();
+  await act(async () => resolveSave({}));
+  await waitFor(() => expect(close).toHaveBeenCalledOnce());
 });

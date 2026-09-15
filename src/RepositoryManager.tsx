@@ -7,6 +7,8 @@ import { useAgentNames } from './useAgentNames';
 import { SkillCandidateDetails } from './SkillCandidateDetails';
 import { Badge, Button } from './ui';
 import { useT } from './i18n';
+import { useSourceInspection } from './useSourceInspection';
+import { SourceActivity, SourceFailure } from './SourceFeedback';
 import type { Skill, SkillCandidate, SkillDeployment, Source } from './types';
 
 import type { Repository } from './contracts';
@@ -14,6 +16,8 @@ export type { Repository } from './contracts';
 type Props = { skills: Skill[]; deployments: SkillDeployment[]; refresh: () => Promise<void>; onDelete: (skill: Skill) => void; onClose: () => void };
 export function RepositoryManager({ skills, deployments, refresh, onDelete, onClose }: Props) {
   const t = useT();
+  const sourceTask = useSourceInspection();
+  const close = () => { if (sourceTask.active) void sourceTask.cancel().then(onClose).catch(e=>setError(String(e))); else if (!busy) onClose(); };
   const [repositories, setRepositories] = useState<Repository[]>([]);
   const [locator, setLocator] = useState('');
   const [browsing, setBrowsing] = useState<{ repositoryId: string; candidates: SkillCandidate[] }>();
@@ -30,8 +34,9 @@ export function RepositoryManager({ skills, deployments, refresh, onDelete, onCl
     setBusy(true); setError(''); let inspectionId: string | undefined;
     try {
       const { source } = parseSkillSourceInput(locator, 'git', undefined, t);
-      const inspected = await api.dispatch('sources.inspect', { source });
+      const inspected = await sourceTask.run(source);
       inspectionId = inspected.inspectionId;
+      if (!mounted.current) return;
       const result = await api.dispatch('repositories.save', { inspectionId });
       setRepositories(result.repositories); setLocator('');
     } catch (e) { setError(String(e)); }
@@ -46,7 +51,7 @@ export function RepositoryManager({ skills, deployments, refresh, onDelete, onCl
   const browse = async (repo: Repository) => {
     collapse(); setBusy(true);
     try {
-      const result = await api.dispatch('sources.inspect', { source: repo.source });
+      const result = await sourceTask.run(repo.source);
       if (!mounted.current) { await api.dispatch('sources.release', { inspectionId: result.inspectionId }); return; }
       inspection.current = result.inspectionId; setBrowsing({ repositoryId: repo.id, candidates: result.candidates || [] });
       if (!(result.candidates || []).length) setError(t('repos.noSkillMd'));
@@ -63,8 +68,8 @@ export function RepositoryManager({ skills, deployments, refresh, onDelete, onCl
   };
   const installedIn = (skillId: string) => [...new Set(deployments.filter(d => d.skillId === skillId && skillPresent(d)).map(d => agentName(d.agent)))].sort(t.compare);
   return <div className="modal-backdrop"><section className="modal modal--wide" role="dialog" aria-modal="true" aria-labelledby="repositories-title">
-    <header className="modal__header"><h2 id="repositories-title">{t('repos.title')}</h2><button className="icon-button" aria-label={t('repos.close')} disabled={busy} onClick={onClose}><X size={18}/></button></header>
-    <div className="modal__body">
+    <header className="modal__header"><h2 id="repositories-title">{t('repos.title')}</h2><button className="icon-button" aria-label={t('repos.close')} disabled={busy&&!sourceTask.active} onClick={close}><X size={18}/></button></header>
+    <div className="modal__body"><SourceActivity progress={sourceTask.progress}/>{sourceTask.active&&<Button onClick={()=>void sourceTask.cancel().catch(e=>setError(String(e)))}>{t('common.cancel')}</Button>}
       <label className="field"><span>{t('repos.address')}</span><div className="add-skill__source"><input value={locator} disabled={busy} onChange={e => setLocator(e.target.value)} placeholder={t('repos.addressPlaceholder')}/><button className="button button--primary" disabled={busy || !locator.trim()} onClick={() => void save()}>{t('repos.add')}</button></div></label>
       <div className="library-list">{repositories.map(repo => { const candidates = browsing && browsing.repositoryId === repo.id ? browsing.candidates : undefined; const name = repo.source.locator.split('/').slice(-2).join('/'); return <article className="repository-row" key={repo.id}>
         <div className="library-row__main"><h3>{name} {repo.derived&&<Badge tone="neutral">{t('repos.linkedSource')}</Badge>}</h3><p className="library-path">{repo.source.locator}{repo.source.revision ? ' · ' + repo.source.revision : ''}</p>
@@ -78,7 +83,7 @@ export function RepositoryManager({ skills, deployments, refresh, onDelete, onCl
       </article>; })}</div>
       {!repositories.length && <p className="form-help">{t('repos.empty')}</p>}
 
-      {error && <p role="alert" className="text-error">{t.backend(error)}</p>}
+      <SourceFailure error={error}/>
     </div>
   </section></div>;
 }

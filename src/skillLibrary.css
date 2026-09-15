@@ -21,8 +21,7 @@
 
 .bookmark-row a { color: inherit; text-decoration: none; }
 .bookmark-row a:hover { text-decoration: underline; text-underline-offset: 3px; }
-.bookmark-link::after { content: ''; position: absolute; inset: 0; }
-.bookmark-link:focus-visible { outline: 0; }
+.bookmark-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 .bookmark-row:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
 .bookmark-row .bookmark-actions { position: relative; z-index: 1; display: flex; flex-wrap: wrap; gap: 4px; }
 .bookmark-meta { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; margin: 10px 0; }
@@ -34,9 +33,8 @@
 .skill-sync__agents { display: flex; flex-wrap: wrap; justify-content: flex-start; gap: 6px; max-width: 100%; }
 .skill-sync__agent { position: relative; width: 30px; height: 30px; min-width: 30px; padding: 5px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--paper); color: var(--muted); cursor: pointer; transition: border-color .15s, background .15s; }
 .skill-sync__agent span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
-.skill-sync__agent .agent-brand-icon { width: 18px; height: 18px; object-fit: contain; filter: grayscale(1); opacity: .4; transition: filter .15s, opacity .15s; }
+.skill-sync__agent .agent-brand-icon { width: 18px; height: 18px; object-fit: contain; }
 .skill-sync__agent.is-synced { border-color: var(--ok); background: var(--ok-bg); }
-.skill-sync__agent.is-synced .agent-brand-icon, .skill-sync__agent:hover:not(:disabled) .agent-brand-icon { filter: none; opacity: 1; }
 .skill-sync__agent:hover:not(:disabled) { border-color: var(--line-strong); }
 .skill-sync__agent:disabled { cursor: default; opacity: .5; }
 .skill-sync__agent:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
@@ -89,15 +87,19 @@
 .toolkit-path-picker input { flex: 1; min-width: 0; }
 
 /* Skill contents reader */
-.toolkit-reader { margin-top: 24px; }
+.modal__body:has(> .toolkit-reader) { display: flex; overflow: hidden; }
+.toolkit-reader { display: flex; flex-direction: column; min-height: 0; width: 100%; }
+.toolkit-reader > h3, .toolkit-reader > p { flex-shrink: 0; margin: 0 0 12px; }
+.toolkit-reader > .field { flex-shrink: 0; margin-bottom: 12px; }
 .toolkit-reader h3 { display: flex; align-items: center; gap: 7px; }
-.toolkit-reader__layout { display: grid; grid-template-columns: minmax(120px, 190px) minmax(0, 1fr); border: 1px solid var(--line); border-radius: var(--r-md); overflow: hidden; min-height: 200px; max-height: 520px; }
-.toolkit-reader nav { overflow: auto; border-right: 1px solid var(--line); padding: 6px; background: var(--well); }
+.toolkit-reader__layout { display: grid; grid-template-columns: minmax(120px, 190px) minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); border: 1px solid var(--line); border-radius: var(--r-md); overflow: hidden; flex: 1 1 520px; height: 520px; min-height: 0; }
+.toolkit-reader nav { min-height: 0; overflow: auto; overscroll-behavior: contain; border-right: 1px solid var(--line); padding: 6px; background: var(--well); }
 .toolkit-reader nav button { display: flex; align-items: start; justify-content: space-between; width: 100%; gap: 5px; text-align: left; word-break: break-all; border: 0; padding: 7px 8px; border-radius: var(--r-sm); font: inherit; font-size: 12px; background: none; color: var(--ink-soft); cursor: pointer; }
 .toolkit-reader nav button:hover { color: var(--ink-strong); }
 .toolkit-reader nav button.active { background: var(--accent-soft); color: var(--accent-hover); font-weight: 600; }
 .toolkit-reader nav small { white-space: nowrap; font-size: 10.5px; color: var(--muted); }
-.toolkit-reader__content { overflow: auto; padding: 16px; min-width: 0; font-size: 12.5px; line-height: 1.7; }
+.toolkit-reader__content { min-height: 0; overflow: auto; overscroll-behavior: contain; padding: 16px; min-width: 0; font-size: 12.5px; line-height: 1.7; }
+.toolkit-reader nav:focus-visible, .toolkit-reader__content:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .toolkit-reader__content pre { white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--mono); font-size: 12px; }
 
 /* Install, update and delete */
@@ -159,7 +161,7 @@
   .add-skill__source { flex-wrap: wrap; }
   .add-skill__source input { flex-basis: 100%; }
   .add-skill__tabs { padding: 0 14px; }
-  .toolkit-reader__layout { grid-template-columns: 1fr; max-height: none; }
+  .toolkit-reader__layout { grid-template-columns: 1fr; grid-template-rows: minmax(50px, 120px) minmax(0, 1fr); }
   .toolkit-reader nav { max-height: 150px; border-right: 0; border-bottom: 1px solid var(--line); }
   .toolkit-reader__content { max-height: 400px; }
 }

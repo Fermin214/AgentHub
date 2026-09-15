@@ -14,6 +14,8 @@ I built AgentHub as a small Windows desktop app for the prompts and Skills you c
 
 The interface supports English and Chinese. Switch languages under **Settings → About → Interface language**.
 
+Built-in Skill targets include **Codex, Claude Code, DeepSeek Harness, ZCode, and Hermes**. Available locations depend on local discovery and your settings.
+
 ## Download and install
 
 AgentHub supports **Windows x64**. Visit [Releases](https://github.com/Fermin214/AgentHub/releases) to download the installer or portable version.

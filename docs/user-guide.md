@@ -1,5 +1,21 @@
 # User guide
 
+[简体中文](user-guide.zh-CN.md) · [Back to README](../README.en.md)
+
+## Prompts and Skills
+
+Save a title and text in **Prompts**, then search, edit, copy, or export it. Categories and tags help you find it again; tags do not run any commands.
+
+Built-in Skill targets are **Codex, Claude Code, DeepSeek Harness, ZCode, and Hermes**. Review detected locations in Settings; availability depends on the Agent and directories on your computer. AgentHub manages Skill copies and does not install the Agents themselves. It keeps host-managed content read-only.
+
+To add a Skill, open **Skills → Add Skill**, enter a Git repository, HTTPS ZIP URL, or local directory, and find its Skills. A source must contain `SKILL.md`; repositories with multiple Skills let you choose which to add. Adding to the library does not install it for an Agent. Select an Agent or project separately and review the destination before confirming.
+
+Source inspection shows its current stage and elapsed time. Use **Cancel**, the close button, or Escape in the Add Skill dialog to stop an inspection. Wait for cancellation and cleanup before retrying; a second inspection cannot run in the same data directory at the same time. Errors provide a short explanation and expandable diagnostics. Saving a selected Skill is a separate operation; its dialog stays protected until saving finishes.
+
+Click a Skill name to view its files. The file list and text scroll independently; focus either pane to use Page Up / Page Down. For a Git web source, **Open source repository ↗** opens the repository home. Local, ZIP, or unknown sources keep the internal viewer without a repository link. Project repository bookmarks also use an explicit external link.
+
+Check updates before applying changes and review the affected locations. Agent icons retain their brand colors; a check mark and green border indicate installation, while a disabled control is dimmed. Prompts and Skills remain local records even when their source is online.
+
 ## Verify a download
 
 Run `Get-FileHash .\filename -Algorithm SHA256` in PowerShell and compare it with `SHA256SUMS.txt` from the same release. `build-manifest.json` records the version, source commit, CI run, file sizes, and signing status. Compare these records with the official release and its CI run to check file integrity and trace the build. Self-reported metadata is not independent proof of publisher identity and does not replace a Windows publisher signature. Signing would not guarantee immediate SmartScreen reputation.

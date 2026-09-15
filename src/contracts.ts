@@ -9,6 +9,7 @@ export type MaintenancePatch = Partial<Pick<MaintenancePolicy, 'automaticChecks'
 export type ProjectState = { isGit: boolean; path: string; canCheck: boolean; head?: string; upstreamHead?: string; commitRangeTotal?: number; commonAncestor?: string; commonAncestorSummary?: string; branch?: string; upstream?: string; remote?: string; remoteUrl?: string; ahead?: number; behind?: number; dirty?: boolean; inProgress?: boolean; changes?: string; upstreamCommits?: string; upstreamChanges?: string; message: string };
 export type ProjectCheck = UpdateCheck & { state?: ProjectState | null };
 export type SourceInspection = { inspectionId: string; source: Source; candidates: SkillCandidate[]; cached?: boolean };
+export type SourceProgress = { stage: string; elapsedSeconds: number; attempt: number };
 export type ProjectDraft = Pick<LocalProject, 'path'> & Partial<Pick<LocalProject, 'id' | 'name' | 'archived'>>;
 export type InstallRequest = { skillId: string; targetId: string; projectId?: string; replaceModified?: boolean; retainBackup?: boolean };
 export type RemoveRequest = { deploymentId: string; retainBackup?: boolean };
@@ -55,7 +56,10 @@ export interface Contracts {
   'repositories.list': Contract<Empty, { repositories: Repository[] }>;
   'repositories.save': Contract<{ inspectionId: string }, { repositories: Repository[] }>;
   'repositories.remove': Contract<{ id: string }, { repositories: Repository[] }>;
-  'sources.inspect': Contract<{ source: Source }, SourceInspection>;
+  'sources.begin': Contract<Empty, { requestId: string }>;
+  'sources.status': Contract<{ requestId: string }, SourceProgress>;
+  'sources.cancel': Contract<{ requestId: string }, SourceProgress>;
+  'sources.inspect': Contract<{ source: Source; requestId?: string }, SourceInspection>;
   'sources.release': Contract<{ inspectionId: string }, Ok>;
   'skills.scan': Contract<Empty, ScanResult>;
   'skills.add': Contract<{ inspectionId: string; subpath: string }, { skill: Skill }>;
