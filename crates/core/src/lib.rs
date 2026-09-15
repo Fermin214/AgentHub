@@ -18,6 +18,7 @@ pub mod safe_files;
 pub mod scan;
 pub mod skill_changes;
 pub mod skills;
+mod source_control;
 pub mod sources;
 pub mod store;
 pub mod targets;
@@ -48,6 +49,12 @@ pub fn dispatch(data_dir: &Path, method: &str, args: Value) -> Result<Value> {
     Ok(result)
 }
 fn dispatch_inner(data_dir: &Path, method: &str, args: Value) -> Result<Value> {
+    // These only observe/signal existing in-memory work, even during recovery.
+    match method {
+        "sources.status" => return source_control::control(data_dir, &args, false),
+        "sources.cancel" => return source_control::control(data_dir, &args, true),
+        _ => {}
+    }
     let mut store = Store::open(data_dir)?;
     let recovery = recovery::prepare(&store)?;
     recovery::guard(method, &recovery)?;
@@ -110,6 +117,7 @@ fn dispatch_inner(data_dir: &Path, method: &str, args: Value) -> Result<Value> {
         | "backups.list"
         | "backups.restore" => skill_changes::dispatch(&store, method, &args),
         "sources.inspect"
+        | "sources.begin"
         | "sources.release"
         | "repositories.list"
         | "repositories.save"

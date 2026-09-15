@@ -62,7 +62,7 @@ function updateModalBackground() {
   if (!active) backgroundAttributes.clear();
 }
 
-export function Modal({ title, children, onClose, wide = false, footer }: { title: string; children: ReactNode; onClose: () => void; wide?: boolean; footer?: ReactNode }) {
+export function Modal({ title, titleAction, children, onClose, wide = false, footer }: { title: string; titleAction?: ReactNode; children: ReactNode; onClose: () => void; wide?: boolean; footer?: ReactNode }) {
   const t = useT();
   const titleId = useId();
   const dialog = useRef<HTMLElement>(null);
@@ -107,7 +107,7 @@ export function Modal({ title, children, onClose, wide = false, footer }: { titl
   return createPortal(<div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
     <section ref={dialog} tabIndex={-1} className={`modal ${wide ? 'modal--wide' : ''}`} role="dialog" aria-modal="true" aria-labelledby={titleId}>
       <header className="modal__header">
-        <div><h2 id={titleId}>{title}</h2></div>
+        <div className={titleAction ? 'modal__title-row' : undefined}><h2 id={titleId}>{title}</h2>{titleAction}</div>
         <IconButton label={t('common.close')} onClick={onClose}><X size={18} /></IconButton>
       </header>
       <div className="modal__body">{children}</div>

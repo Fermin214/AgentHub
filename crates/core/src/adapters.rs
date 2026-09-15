@@ -323,11 +323,13 @@ pub fn run_command(
 
     let started = Instant::now();
     let mut timed_out = false;
+    let mut interrupted = None;
     let status = loop {
         if let Some(status) = child.try_wait().context("failed to poll adapter process")? {
             break Some(status);
         }
-        if started.elapsed() >= timeout {
+        interrupted = crate::source_control::checkpoint().err();
+        if started.elapsed() >= timeout || interrupted.is_some() {
             timed_out = true;
             #[cfg(windows)]
             {
@@ -350,6 +352,9 @@ pub fn run_command(
 
     let stdout = join_reader(stdout_reader);
     let stderr = join_reader(stderr_reader);
+    if let Some(error) = interrupted {
+        return Err(error);
+    }
     Ok(RunOutput {
         status,
         stdout,

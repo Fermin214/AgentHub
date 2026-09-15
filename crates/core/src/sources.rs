@@ -12,6 +12,7 @@ pub fn dispatch(store: &Store, method: &str, args: &Value) -> Result<Value> {
             repositories(store, method, args)
         }
         "sources.inspect" => inspect(store, args),
+        "sources.begin" => crate::source_control::begin(store.data_dir()),
         "sources.release" => {
             remove_inspection(
                 store.data_dir(),
@@ -136,6 +137,8 @@ fn remove_inspection(data: &Path, id: &str) -> Result<()> {
     Ok(())
 }
 fn inspect(store: &Store, args: &Value) -> Result<Value> {
+    let control = crate::source_control::Guard::enter(store.data_dir(), args)?;
+    crate::source_control::checkpoint()?;
     let data = store.data_dir();
     let cache_root = data.join("source-inspections");
     if let Ok(entries) = fs::read_dir(&cache_root) {
@@ -168,6 +171,7 @@ fn inspect(store: &Store, args: &Value) -> Result<Value> {
     let result = (|| -> Result<Value> {
         let mut result =
             crate::native::inspect_source_with_proxy(&normalized, &root, Some(&proxy))?;
+        crate::source_control::stage("fingerprinting", 0)?;
         let manifest = json!({"source":result["source"],"candidates":result["candidates"],"digest":source_digest(&root.join("source"))?,"createdAt":chrono::Utc::now().timestamp()});
         annotate_library(store, &mut result)?;
         save_inspection(store, &id, &manifest)?;
@@ -175,8 +179,20 @@ fn inspect(store: &Store, args: &Value) -> Result<Value> {
         result["cached"] = json!(false);
         Ok(result)
     })();
-    if result.is_err() && root.exists() {
-        remove_inspection(data, &id)?;
+    let completion = control.seal();
+    control.detach(); // Cleanup must not itself be interrupted by cancellation.
+    let result = result.and_then(|value| completion.map(|_| value));
+    if result.is_err() {
+        if let Err(cleanup) = remove_inspection(data, &id) {
+            return Err(crate::errors::coded(
+                "SOURCE_CLEANUP_FAILED",
+                json!({}),
+                format!("{}; cleanup failed: {cleanup:#}", result.unwrap_err()),
+            ));
+        }
+        store
+            .conn
+            .execute("DELETE FROM source_inspections WHERE id=?1", [&id])?;
     }
     result
 }

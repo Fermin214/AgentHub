@@ -130,37 +130,53 @@ pub fn validate_redirect(current: &str, location: &str, redirects: usize) -> Res
     https_url(next.as_str())
 }
 fn download_zip(locator: &str, payload: &Path, proxy: Option<&str>) -> Result<()> {
-    let client = crate::network::client_builder(proxy)?
-        .timeout(Duration::from_secs(120))
-        .redirect(reqwest::redirect::Policy::none())
+    crate::source_control::stage("downloading", 0)?;
+    // A cancellable future owns the socket; dropping it stops the request before cleanup.
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
         .build()?;
-    let mut url = https_url(locator)?;
-    let mut redirects = 0;
-    let mut response = loop {
-        let response = client.get(url.clone()).send()?.error_for_status()?;
-        if response.status().is_redirection() {
-            let location = response
-                .headers()
-                .get(reqwest::header::LOCATION)
-                .context("ZIP redirect has no Location")?
-                .to_str()?;
-            url = validate_redirect(url.as_str(), location, redirects)?;
-            redirects += 1;
-            continue;
+    let bytes = runtime.block_on(async {
+        let mut builder = reqwest::Client::builder()
+            .https_only(true)
+            .user_agent(concat!("AgentHub/", env!("CARGO_PKG_VERSION")))
+            .timeout(Duration::from_secs(120))
+            .redirect(reqwest::redirect::Policy::none());
+        let proxy = crate::network::validate_proxy(proxy.unwrap_or(""))?;
+        if !proxy.is_empty() {
+            builder = builder.proxy(reqwest::Proxy::all(&proxy)?);
         }
-        break response;
-    };
-    if response.content_length().is_some_and(|n| n > MAX_BYTES) {
-        bail!("ZIP exceeds download limit");
-    }
-    let mut bytes = Vec::new();
-    response
-        .by_ref()
-        .take(MAX_BYTES + 1)
-        .read_to_end(&mut bytes)?;
-    if bytes.len() as u64 > MAX_BYTES {
-        bail!("ZIP exceeds download limit");
-    }
+        let client = builder.build()?;
+        let mut url = https_url(locator)?;
+        let mut redirects = 0;
+        let mut response = loop {
+            let response = crate::source_control::wait(client.get(url.clone()).send())
+                .await??
+                .error_for_status()?;
+            if response.status().is_redirection() {
+                let location = response
+                    .headers()
+                    .get(reqwest::header::LOCATION)
+                    .context("ZIP redirect has no Location")?
+                    .to_str()?;
+                url = validate_redirect(url.as_str(), location, redirects)?;
+                redirects += 1;
+                continue;
+            }
+            break response;
+        };
+        if response.content_length().is_some_and(|n| n > MAX_BYTES) {
+            bail!("ZIP exceeds download limit");
+        }
+        let mut bytes = Vec::new();
+        while let Some(chunk) = crate::source_control::wait(response.chunk()).await?? {
+            if bytes.len() as u64 + chunk.len() as u64 > MAX_BYTES {
+                bail!("ZIP exceeds download limit");
+            }
+            bytes.extend_from_slice(&chunk);
+        }
+        Ok::<_, anyhow::Error>(bytes)
+    })?;
+    crate::source_control::stage("extracting", 0)?;
     extract_zip(std::io::Cursor::new(bytes), payload)?;
     Ok(())
 }
@@ -199,6 +215,16 @@ fn git_with_proxy(root: &Path, args: Vec<String>, proxy: Option<&str>) -> Result
     safe.extend(args);
     let deadline = std::time::Instant::now() + Duration::from_secs(120);
     for attempt in 0..3 {
+        crate::source_control::stage(
+            if safe.iter().any(|s| s == "clone") {
+                "cloning"
+            } else if safe.iter().any(|s| s == "fetch") {
+                "fetching"
+            } else {
+                "checkout"
+            },
+            attempt + 1,
+        )?;
         let remaining = deadline.saturating_duration_since(std::time::Instant::now());
         if remaining.is_zero() {
             bail!("读取 Git 来源超时，请稍后重试");
@@ -341,6 +367,7 @@ fn acquire(source: &Value, root: &Path, proxy: Option<&str>) -> Result<Value> {
         .context("source locator required")?;
     match source["kind"].as_str().unwrap_or("") {
         "local" => {
+            crate::source_control::stage("copying", 0)?;
             let path = Path::new(locator);
             if !path.is_absolute() || !path.is_dir() {
                 bail!("local source must be an existing absolute directory");
@@ -405,6 +432,7 @@ pub(crate) fn skill_description(folder: &Path) -> Option<String> {
 }
 
 pub(crate) fn candidates(payload: &Path) -> Result<Vec<Value>> {
+    crate::source_control::stage("scanning", 0)?;
     inspect_tree(payload)?;
     let mut result = Vec::new();
     for entry in walkdir::WalkDir::new(payload)
@@ -413,6 +441,7 @@ pub(crate) fn candidates(payload: &Path) -> Result<Vec<Value>> {
         .filter_entry(|entry| !matches!(entry.file_name().to_str(), Some(".git" | "node_modules")))
     {
         let entry = entry?;
+        crate::source_control::checkpoint()?;
         if !entry.file_type().is_file() || entry.file_name() != "SKILL.md" {
             continue;
         }
@@ -449,13 +478,13 @@ pub(crate) fn candidates(payload: &Path) -> Result<Vec<Value>> {
         result.push(serde_json::json!({"name":name,"description":description,"subpath":subpath}));
     }
     result.sort_by(|a, b| a["subpath"].as_str().cmp(&b["subpath"].as_str()));
-    compare_candidates(payload, &mut result);
+    compare_candidates(payload, &mut result)?;
     Ok(result)
 }
 
 // Compare full directory trees, including relative paths and file bytes. Never
 // infer distribution roles from folder names or equate only SKILL.md contents.
-fn compare_candidates(payload: &Path, candidates: &mut [Value]) {
+fn compare_candidates(payload: &Path, candidates: &mut [Value]) -> Result<()> {
     let names: Vec<_> = candidates
         .iter()
         .map(|c| c["name"].as_str().unwrap_or("").trim().to_lowercase())
@@ -487,6 +516,7 @@ fn compare_candidates(payload: &Path, candidates: &mut [Value]) {
         .map(|c| c["subpath"].as_str().unwrap_or("").to_owned())
         .collect();
     for (i, candidate) in candidates.iter_mut().enumerate() {
+        crate::source_control::checkpoint()?;
         let mut same = vec![];
         let mut different = vec![];
         let mut unknown = vec![];
@@ -505,6 +535,7 @@ fn compare_candidates(payload: &Path, candidates: &mut [Value]) {
                 serde_json::json!({"same":same,"different":different,"unknown":unknown});
         }
     }
+    Ok(())
 }
 /// Acquire a source and list independently selectable Skills. No deployment is performed.
 pub fn inspect_source(source: &Value, root: &Path) -> Result<Value> {
@@ -573,6 +604,7 @@ pub fn inspect_tree(root: &Path) -> Result<()> {
         .max_depth(65)
     {
         let item = item?;
+        crate::source_control::checkpoint()?;
         entries += 1;
         if entries > MAX_ENTRIES || item.depth() > 64 {
             bail!("source exceeds entry/depth limit");
@@ -596,6 +628,7 @@ pub fn inspect_tree(root: &Path) -> Result<()> {
 pub fn copy_bounded(source: &Path, dest: &Path) -> Result<()> {
     inspect_tree(source)?;
     for item in walkdir::WalkDir::new(source).follow_links(false) {
+        crate::source_control::checkpoint()?;
         let item = item?;
         let path = dest.join(item.path().strip_prefix(source)?);
         let meta = fs::symlink_metadata(item.path())?;
@@ -608,7 +641,10 @@ pub fn copy_bounded(source: &Path, dest: &Path) -> Result<()> {
             if let Some(parent) = path.parent() {
                 fs::create_dir_all(parent)?;
             }
-            fs::copy(item.path(), path)?;
+            let mut input = fs::File::open(item.path())?;
+            let mut output = fs::File::create(&path)?;
+            copy_interruptible(&mut input, &mut output)?;
+            fs::set_permissions(path, meta.permissions())?;
         }
     }
     Ok(())
@@ -620,6 +656,7 @@ pub fn extract_zip<R: Read + std::io::Seek>(reader: R, dest: &Path) -> Result<()
     }
     let mut total = 0u64;
     for index in 0..archive.len() {
+        crate::source_control::checkpoint()?;
         let mut entry = archive.by_index(index)?;
         let raw = entry.name();
         if raw.contains('\\') || raw.contains(':') {
@@ -655,7 +692,7 @@ pub fn extract_zip<R: Read + std::io::Seek>(reader: R, dest: &Path) -> Result<()
                 .write(true)
                 .create_new(true)
                 .open(path)?;
-            let size = std::io::copy(&mut entry.by_ref().take(MAX_BYTES + 1), &mut file)?;
+            let size = copy_interruptible(&mut entry.by_ref().take(MAX_BYTES + 1), &mut file)?;
             if size > MAX_BYTES {
                 bail!("ZIP entry exceeds size limit");
             }
@@ -663,6 +700,19 @@ pub fn extract_zip<R: Read + std::io::Seek>(reader: R, dest: &Path) -> Result<()
         }
     }
     Ok(())
+}
+fn copy_interruptible(input: &mut impl Read, output: &mut impl Write) -> Result<u64> {
+    let mut buffer = [0u8; 65536];
+    let mut total = 0;
+    loop {
+        crate::source_control::checkpoint()?;
+        let count = input.read(&mut buffer)?;
+        if count == 0 {
+            return Ok(total);
+        }
+        output.write_all(&buffer[..count])?;
+        total += count as u64;
+    }
 }
 
 pub fn differences(source: &Path, target: Option<&Path>) -> Result<Value> {
@@ -716,7 +766,7 @@ mod acquisition_git_tests {
             serde_json::json!({"name":"Same","subpath":"a"}),
             serde_json::json!({"name":"Same","subpath":"b"}),
         ];
-        compare_candidates(t.path(), &mut choices);
+        compare_candidates(t.path(), &mut choices).unwrap();
         assert_eq!(
             choices[0]["contentComparison"]["same"],
             serde_json::json!([])

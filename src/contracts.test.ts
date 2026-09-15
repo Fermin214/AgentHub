@@ -9,7 +9,7 @@ it('keeps Rust routes, the method contract, and every real frontend dispatch cal
   const source = program.getSourceFile(ts.sys.resolvePath('src/contracts.ts'))!;
   const contract = source.statements.find((node): node is ts.InterfaceDeclaration => ts.isInterfaceDeclaration(node) && node.name.text === 'Contracts')!;
   const methods = contract.members.map(member => (member.name as ts.StringLiteral).text).sort();
-  const rust = ts.sys.readFile('crates/core/src/lib.rs')!.split('match method {')[1].split('_ => bail!')[0];
+  const rust = ts.sys.readFile('crates/core/src/lib.rs')!.split('fn dispatch_inner(')[1].split('_ => bail!')[0];
   const routes = [...rust.matchAll(/"([a-z][a-zA-Z.]*)"(?=\s*(?:\||=>))/g)].map(match => match[1]).sort();
   expect(methods).toEqual(routes);
 

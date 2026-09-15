@@ -78,6 +78,7 @@ pub fn digest(path: &Path) -> Result<String> {
         .sort_by_file_name()
     {
         let entry = entry?;
+        crate::source_control::checkpoint()?;
         let metadata = plain_metadata(entry.path())?.context("摘要读取期间文件消失")?;
         let relative = entry
             .path()
@@ -92,6 +93,7 @@ pub fn digest(path: &Path) -> Result<String> {
             let mut file = File::open(entry.path())?;
             let mut buffer = [0u8; 65536];
             loop {
+                crate::source_control::checkpoint()?;
                 let count = file.read(&mut buffer)?;
                 if count == 0 {
                     break;

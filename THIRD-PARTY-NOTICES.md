@@ -21,7 +21,17 @@ Tauri and nsis-tauri-utils are MIT / Apache-2.0 licensed. Terms for NSIS stubs, 
 
 ## Icons and fonts
 
-The Codex, Claude Code, and DeepSeek SVGs come from Lobe Icons under the MIT license, Copyright (c) 2023 LobeHub. Trademarks belong to their respective owners; identification icons do not imply endorsement. The AgentHub application icon is provided by the project maintainer. The interface uses system fonts and does not bundle font files.
+The Codex, Claude Code, DeepSeek, Hermes Agent, and Z.ai SVGs come from [Lobe Icons](https://github.com/lobehub/lobe-icons/tree/a94750e3f5f8fc33757b839d85030e742284e43a/packages/static-svg/icons) under the MIT license, Copyright (c) 2023 LobeHub. Local files preserve the upstream artwork and colors at commit `a94750e3f5f8fc33757b839d85030e742284e43a`:
+
+| Local file in `src/assets/agents/` | Upstream file | Agent |
+| --- | --- | --- |
+| `codex.svg` | `codex-color.svg` | Codex |
+| `claudecode.svg` | `claudecode-color.svg` | Claude Code |
+| `deepseek.svg` | `deepseek-color.svg` | DeepSeek Harness |
+| `hermesagent.svg` | `hermesagent.svg` | Hermes |
+| `zai.svg` | `zai.svg` | ZCode (Z.ai brand) |
+
+ZCode uses its publisher's Z.ai mark; this is not a ZCode-specific logo. Product relationship: [official ZCode site](https://zcode.z.ai/en). Trademarks belong to their respective owners; identification icons do not imply endorsement. The AgentHub application icon is provided by the project maintainer. The interface uses system fonts and does not bundle font files.
 
 The original Lobe Icons license follows. Other upstream terms are also preserved in their original form.
 
