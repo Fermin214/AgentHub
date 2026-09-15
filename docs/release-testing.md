@@ -2,6 +2,8 @@
 
 Each candidate should connect its source commit, successful CI, distribution files, and Windows acceptance. Test records apply to those exact files, not to other versions or rebuilt binaries.
 
+Use the [acceptance automation entry point](acceptance-automation.md) for repeatable PullRequest and Release runs. It generates structured evidence and nonzero failure/incomplete exits. Complete the remaining [manual Windows scenarios](acceptance-manual.md) before claiming full release acceptance.
+
 ## Build and preserve
 
 1. Complete public-content and license review, then run `node scripts/verify-release.mjs` to check versions and license materials.

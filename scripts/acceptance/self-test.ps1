@@ -1,0 +1,88 @@
+# No VM, registry changes, or third-party test framework required.
+$ErrorActionPreference='Stop'
+. (Join-Path $PSScriptRoot 'common.ps1')
+$project=Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
+$root=Join-Path $project ('output/acceptance-self-test/'+[guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path "$root/candidate" | Out-Null
+$checks=@()
+function Check([string]$Name,[scriptblock]$Action) {
+    & $Action
+    $script:checks+=@{name=$Name;status='passed'}
+    Write-Host "PASS $Name"
+}
+function Reject([scriptblock]$Action) { $rejected=$false;try{& $Action | Out-Null}catch{$rejected=$true};if(-not $rejected){throw 'Expected rejection'} }
+try {
+    Check 'Containment rejects siblings and traversal' {
+        Reject { Assert-AcceptancePath "$root/../outside" $root }
+        Reject { Assert-AcceptancePath ($root+'-other/file') $root }
+    }
+    Check 'Linked ancestors are rejected' {
+        New-Item -ItemType Directory -Path "$root/target" | Out-Null
+        New-Item -ItemType Junction -Path "$root/link" -Target "$root/target" | Out-Null
+        try { Reject { Assert-AcceptancePath "$root/link/file" $root } }
+        finally { Remove-Item -LiteralPath "$root/link" }
+    }
+    Check 'Failure outranks incomplete and passed' {
+        if ((Get-AcceptanceExitCode @(@{status='passed'},@{status='not-run'},@{status='failed'})) -ne 1) { throw 'Failure exit code' }
+        if ((Get-AcceptanceExitCode @(@{status='environment-blocked'})) -ne 2) { throw 'Blocked exit code' }
+        if ((Get-AcceptanceExitCode @(@{status='passed'})) -ne 0) { throw 'Success exit code' }
+        Reject { New-AcceptanceResult 'invalid' 'skipped' '' '' }
+    }
+    Check 'Windows PowerShell stderr cannot bypass exit-code inspection' {
+        $code=Invoke-AcceptanceProcess 'powershell.exe' @('-NoProfile','-Command',"throw 'expected-child-failure'") "$root/native-failure.log"
+        if($code -ne 1 -or -not ([IO.File]::ReadAllText("$root/native-failure.log")).Contains('expected-child-failure')){throw 'Lost native failure evidence'}
+        if($ErrorActionPreference -ne 'Stop'){throw 'Error policy leaked'}
+    }
+    Check 'Expected failure requires the exact error, cleanup success and matching case' {
+        $record=@{case='fixture';status='failed';error='ACCEPTANCE_EXPECTED_FAILURE_AFTER_INSTALL';cleanup=@{status='passed'}}
+        Assert-NativeAcceptanceResult $record 1 'fixture' -ExpectedFailure
+        Reject { Assert-NativeAcceptanceResult $record 0 'fixture' -ExpectedFailure }
+        Reject { Assert-NativeAcceptanceResult $record 1 'another-run' -ExpectedFailure }
+        $record.cleanup.status='failed'
+        Reject { Assert-NativeAcceptanceResult $record 1 'fixture' -ExpectedFailure }
+        $record.cleanup.status='passed';$record.error='unexpected failure'
+        Reject { Assert-NativeAcceptanceResult $record 1 'fixture' -ExpectedFailure }
+        Reject { Assert-NativeAcceptanceResult $record 1 'fixture' }
+    }
+    if($env:COMPUTERNAME -ne 'TEST' -or $env:USERNAME -ne 'Try') {
+        Check 'Native release entry refuses the development host before opening inputs' {
+            $code=Invoke-AcceptanceProcess 'powershell.exe' @('-NoProfile','-File',"$project/scripts/verify-windows-vm.ps1",'-Case','self-test-refusal','-Installer','does-not-exist.exe','-Cli','does-not-exist.exe') "$root/host-refusal.log"
+            if($code -eq 0 -or -not ([IO.File]::ReadAllText("$root/host-refusal.log")).Contains('Requires TEST/Try interactive disposable VM desktop')){throw 'Host safety guard was not reached before input use'}
+        }
+    }
+    $files=@()
+    foreach($name in @('AgentHub_0.1.1_x64-setup.exe','AgentHub-0.1.1-windows-x64.zip')) {
+        [IO.File]::WriteAllText("$root/candidate/$name",'fictional fixture bytes')
+        $files+=@{name=$name;bytes=(Get-Item "$root/candidate/$name").Length;sha256=(Get-FileHash "$root/candidate/$name").Hash.ToLowerInvariant()}
+    }
+    $manifest=@{product='AgentHub';version='0.1.1';sourceCommit=('a'*40);files=$files}
+    Write-AcceptanceJson $manifest "$root/candidate/build-manifest.json"
+    $sum=@($files|ForEach-Object{"$($_.sha256)  $($_.name)"})
+    $sum+="$((Get-FileHash "$root/candidate/build-manifest.json").Hash.ToLowerInvariant())  build-manifest.json"
+    [IO.File]::WriteAllLines("$root/candidate/SHA256SUMS.txt",[string[]]$sum)
+    Check 'Valid candidate then tamper detection' {
+        if ((Get-CandidateProof "$root/candidate").files.Count -ne 4) { throw 'Incomplete proof' }
+        [IO.File]::AppendAllText("$root/candidate/AgentHub_0.1.1_x64-setup.exe",'changed')
+        Reject { Get-CandidateProof "$root/candidate" }
+    }
+    Check 'Real entry point returns nonzero and complete evidence on candidate failure' {
+        & pwsh -NoProfile -File "$project/scripts/acceptance.ps1" -Profile Release -CandidatePath "$root/candidate" -OutputRoot "$root/failed" *> "$root/failure.log"
+        if ($LASTEXITCODE -ne 1) { throw "Expected exit 1, got $LASTEXITCODE" }
+        $run=(Get-ChildItem "$root/failed" -Directory | Select-Object -First 1).FullName
+        foreach($name in @('acceptance.json','acceptance.md','environment.json','candidate-hashes.json','cleanup.json','logs','screenshots')) { if(-not(Test-Path -LiteralPath (Join-Path $run $name))){throw "Missing $name"} }
+        $report=[IO.File]::ReadAllText("$run/acceptance.json")|ConvertFrom-Json
+        if ($report.status -ne 'failed' -or @($report.scenarios|Where-Object status -eq 'passed').Count) { throw 'False pass on invalid candidate' }
+    }
+    Check 'Dry run lists every scenario without executing tests and returns incomplete' {
+        & pwsh -NoProfile -File "$project/scripts/acceptance.ps1" -Profile PullRequest -DryRun -OutputRoot "$root/dry" *> "$root/dry.log"
+        if($LASTEXITCODE -ne 2){throw 'Dry run must not claim acceptance passed'}
+        $run=(Get-ChildItem "$root/dry" -Directory|Select-Object -First 1).FullName
+        $report=[IO.File]::ReadAllText("$run/acceptance.json")|ConvertFrom-Json
+        if($report.scenarios.Count -ne 4 -or @($report.scenarios|Where-Object status -ne 'not-run').Count){throw 'Dry run executed a scenario'}
+    }
+    Write-AcceptanceJson @{status='passed';checks=$checks;finishedAt=[DateTime]::UtcNow.ToString('o')} "$root/self-test.json"
+    Write-Host "Self-test evidence: $root"
+} catch {
+    Write-AcceptanceJson @{status='failed';checks=$checks;error=$_.ToString();stack=$_.ScriptStackTrace} "$root/self-test.json"
+    throw
+}

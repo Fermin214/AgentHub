@@ -1,4 +1,4 @@
-param(
+﻿param(
     [Parameter(Mandatory=$true)][string]$PortableZip,
     [Parameter(Mandatory=$true)][string]$Cli,
     [string]$Root = 'C:\AgentHub-VM-Test',
@@ -15,6 +15,8 @@ $reportPath = Join-Path $Root ('evidence/' + $Case + '.json')
 $report = [ordered]@{case=$Case;status='running';startedAt=(Get-Date).ToUniversalTime().ToString('o');steps=@();screens=@()}
 $reportReady=$false
 $app=$null
+. (Join-Path $PSScriptRoot 'acceptance/vm-safety.ps1')
+$previousWebviewArguments=$env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS
 function Write-Json($Value,[string]$Path) { [IO.File]::WriteAllText($Path,($Value | ConvertTo-Json -Depth 80),$utf8) }
 function Read-Text([string]$Path) { [IO.File]::ReadAllText($Path,$utf8) }
 function Save-Report { if($script:reportReady){Write-Json $report $reportPath} }
@@ -126,10 +128,12 @@ function Probe-Desktop([string]$Stage) {
     Step "Native desktop $Stage rendered stored Prompt, Skill, project and settings without data-dir override"
 }
 try{
+    Assert-TestDesktop
+    [void](Assert-AcceptancePath $caseRoot $Root)
     if($env:COMPUTERNAME -ne 'TEST' -or $env:USERNAME -ne 'Try' -or [Diagnostics.Process]::GetCurrentProcess().SessionId -eq 0){throw 'Requires authorized TEST/Try interactive VM session'}
     if([IO.Path]::GetFullPath($Root) -ne 'C:\AgentHub-VM-Test' -or $Case -notmatch '^[a-z0-9-]+$'){throw 'Invalid VM fixture root or case'}
     if($env:AGENTHUB_DATA_DIR){throw 'Remove AGENTHUB_DATA_DIR before this test'}
-    if(Test-Path -LiteralPath $caseRoot){throw 'Case already exists; preserve evidence and use a new case name'}
+    if((Test-Path -LiteralPath $caseRoot) -or (Test-Path -LiteralPath $reportPath)){throw 'Case already exists; preserve evidence and use a new case name'}
     [void](Assert-FixturePath (Join-Path $caseRoot 'A'))
     New-Item -ItemType Directory -Path $caseRoot,(Join-Path $Root 'evidence') -Force | Out-Null
     $reportReady=$true
@@ -257,6 +261,7 @@ public static class VmPortableCapture {
     if($app -and -not $app.HasExited){try{Save-Screen 'failure'}catch{$report.captureError=$_.ToString()}}
 }finally{
     if($app -and -not $app.HasExited){try{Close-Desktop}catch{$report.status='failed';$report.closeError=$_.ToString()}}
+    $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=$previousWebviewArguments
     $report.finishedAt=(Get-Date).ToUniversalTime().ToString('o')
     Save-Report
 }

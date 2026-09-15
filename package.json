@@ -4,6 +4,8 @@
   "version": "0.1.1",
   "type": "module",
   "scripts": {
+    "test:ui": "playwright test",
+    "test:acceptance": "pwsh -NoProfile -File scripts/acceptance/self-test.ps1",
     "dev": "vite",
     "desktop:dev": "pwsh -NoProfile -File scripts/dev.ps1",
     "build": "tsc --noEmit && vite build",
@@ -24,6 +26,7 @@
     "react-dom": "^18.3.1"
   },
   "devDependencies": {
+    "@playwright/test": "1.63.0",
     "@tauri-apps/cli": "^2.11.4",
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.1.0",

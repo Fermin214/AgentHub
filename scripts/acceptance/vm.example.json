@@ -1,0 +1,6 @@
+{
+  "sshTarget": "Try@192.168.81.128",
+  "cliPath": "C:/path/to/candidate-source/target/release/agenthub-dev.exe",
+  "baseCandidatePath": "C:/path/to/preserved-public-base-candidate",
+  "baseCliPath": "C:/path/to/base-source/target/release/agenthub-dev.exe"
+}

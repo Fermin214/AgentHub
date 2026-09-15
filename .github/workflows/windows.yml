@@ -54,6 +54,20 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run build
+      - name: Acceptance harness self-tests
+        run: pwsh -NoProfile -File scripts/acceptance/self-test.ps1
+      - name: Core UI smoke in Edge
+        run: node node_modules/@playwright/test/cli.js test
+      - name: Preserve acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: acceptance-frontend-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            output/ui-smoke
+            output/acceptance-self-test
+          if-no-files-found: warn
+          retention-days: 30
   package:
     needs: [rust, frontend]
     runs-on: windows-latest
