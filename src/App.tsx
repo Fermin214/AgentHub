@@ -10,7 +10,7 @@ import { useSkillUpdates } from './useSkillUpdates';
 import { useAutomaticUpdates } from './useAutomaticUpdates';
 import { Toast, type Notify } from './ui';
 import { LanguageProvider, resolveLang, useT, type Lang } from './i18n';
-import type { BackupRecord, Snapshot, UpdateCheck } from './types';
+import type { BackupRecord, Skill, Snapshot, UpdateCheck } from './types';
 import './styles.css';
 import './skillLibrary.css';
 
@@ -39,6 +39,10 @@ function Workspace({ lang, onLang }: { lang: Lang; onLang: (lang: Lang) => void 
   // anything it does not recognise unchanged, so one pass here covers both.
   const notify: Notify = useCallback((message, tone = 'success') => setToast({message:t.backend(message),tone}), [t]);
   const refresh = useCallback(async () => { const sequence=++refreshSequence.current; const result = await api.getSnapshot(); if(sequence===refreshSequence.current){setSnapshot(result);setError('');} }, []);
+  // `skills.metadata.save` only returns the records it touched, so merge just those by
+  // id over the latest list. Taking only the saved records matters when concurrent
+  // saves finish out of order: a stale full list would revert rows another save updated.
+  const applySkills = useCallback((saved: Skill[]) => setSnapshot(current => current ? { ...current, skills: current.skills.map(skill => saved.find(item => item.id === skill.id) ?? skill) } : current), []);
   const skillUpdates=useSkillUpdates(snapshot,refresh,notify);
   useEffect(() => { void refresh().catch(e => setError(String(e))); }, [refresh]);
   // The saved language wins over the system locale once local data is readable.
@@ -56,7 +60,7 @@ function Workspace({ lang, onLang }: { lang: Lang; onLang: (lang: Lang) => void 
     <main className="main-content"><div className="mobile-topbar"><button className="icon-button" aria-label={t('nav.open')} onClick={()=>setMobile(true)}><Menu/></button>{t('app.name')}</div>{!api.isTauriRuntime()&&<div className="demo-banner"><Info size={16}/><span><strong>{t('demo.readonly')}</strong> {t('demo.body')}</span></div>}<div className="page-wrap">
       {snapshot.recovery?.status==='restricted'&&<section className="recovery-banner" role="alert"><h2>{t('recovery.title')}</h2><p>{t('recovery.body')}</p><details><summary>{t('recovery.details')}</summary><p>{snapshot.recovery.code}</p><pre>{snapshot.recovery.detail}</pre>{snapshot.recovery.issues.map((issue,index)=><div key={issue.id||index}><strong>{issue.id||issue.state}</strong><ul>{issue.paths.map(path=><li key={path}>{path}</li>)}</ul></div>)}</details><button className="button" onClick={()=>void refresh().catch(e=>notify(String(e),'error'))}>{t('recovery.retry')}</button></section>}
       {page==='prompts'&&<PromptsPage prompts={snapshot.prompts} onSnapshot={setSnapshot} notify={notify}/>}
-      {page==='skills'&&<SkillPage snapshot={snapshot} refresh={refresh} notify={notify} controller={skillUpdates} projectId={projectId} onProject={setProjectId}/>}
+      {page==='skills'&&<SkillPage snapshot={snapshot} refresh={refresh} notify={notify} controller={skillUpdates} projectId={projectId} onProject={setProjectId} onSkills={applySkills}/>}
       {page==='projects'&&<ProjectsPage projects={snapshot.projects} updates={updates} dataScope={snapshot.dataScope||''} refresh={refresh} onManageSkills={id=>{setProjectId(id);setPage('skills');}}/>}
       {page==='settings'&&<SettingsPage dataDir={snapshot.dataDir} settings={snapshot.settings} backups={backups} operations={snapshot.operations} notify={notify} onSave={async(settings,message)=>{try{await api.saveSettings(settings);await refresh();notify(message||t('settings.saved'));}catch(e){notify(String(e),'error');}}} onRestore={async id=>{try{const result=await api.restoreBackup(id);await refresh();notify(result.summary,result.status==='succeeded'?'success':'error');}catch(e){notify(String(e),'error');}}}/>}
     </div></main>{toast&&<Toast {...toast} onClose={()=>setToast(undefined)}/>}
