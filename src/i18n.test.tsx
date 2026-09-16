@@ -3,8 +3,9 @@ import { render, screen, within, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import * as api from './api';
 import App from './App';
-import { makeTranslate, resolveLang } from './i18n';
-import type { Settings, Snapshot } from './types';
+import { makeTranslate, resolveLang, LanguageProvider } from './i18n';
+import { SkillContents } from './SkillContents';
+import type { Settings, Skill, Snapshot } from './types';
 
 const settings: Settings = { scanRoots: [], executables: { codex: '', claude: '', dsh: '' } };
 const snapshot = (language: string): Snapshot => ({ dataScope: 'fixture', prompts: [], skills: [], deployments: [], projects: [], settings: { ...settings, language }, operations: [] });
@@ -30,19 +31,18 @@ it('translates core messages and falls back to the original text', () => {
   expect(makeTranslate('zh').backend('Skill 不存在')).toBe('Skill 不存在');
 });
 
-it('keeps the Skill viewer library-only in both languages', () => {
-  const en = makeTranslate('en');
-  const zh = makeTranslate('zh');
-  // A missing key resolves to itself, so the removed copy cannot silently come back.
-  expect(en('contents.location')).toBe('contents.location');
-  expect(en('contents.library')).toBe('contents.library');
-  expect(zh('contents.location')).toBe('contents.location');
-  expect(en('contents.files')).toBe('Skill files');
-  // Favorite feedback names the Skill that is still saving.
-  expect(zh('skills.favoritePending', { name: 'Writer' })).toBe('正在保存 Writer 的收藏…');
-  expect(en('skills.favoritePending', { name: 'Writer' })).toBe('Saving Writer favorite…');
-  expect(zh('skills.favoriteLabel', { name: 'Writer' })).toBe('收藏 Writer');
-  expect(en('skills.unfavoriteLabel', { name: 'Writer' })).toBe('Remove Writer from favorites');
+it('renders the English Skill viewer without any read-location entry', async () => {
+  const dispatch = vi.spyOn(api, 'dispatch').mockImplementation(async (...[method]) => method === 'skills.files' ? { files: [{ path: 'SKILL.md', size: 12 }] } as never : { content: 'Library body' } as never);
+  render(<LanguageProvider lang="en"><SkillContents skill={{ id: 's', name: 'Writer' } as Skill}/></LanguageProvider>);
+  // A real English render proves the removed entry is gone from the interface,
+  // not merely absent from the dictionary.
+  expect(await screen.findByText('Library body')).toBeVisible();
+  expect(screen.getByRole('heading', { name: 'Files' })).toBeVisible();
+  expect(screen.queryByText('Read from', { exact: true })).not.toBeInTheDocument();
+  expect(screen.queryByText('Skill library', { exact: true })).not.toBeInTheDocument();
+  expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
+  expect(screen.getByRole('navigation', { name: 'Skill files' })).toBeVisible();
+  dispatch.mockRestore();
 });
 
 it('uses stable error codes when diagnostics change and preserves affected paths', () => {

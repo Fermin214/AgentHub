@@ -16,37 +16,23 @@ test('a pending favorite save keeps other Skills, Agent icons, and top actions u
   await expect(saving).toBeDisabled();
   expect(await page.locator('button[data-favorite-pending="true"]').count()).toBe(1);
 
-  // Other Skills remain favorite-able; only the clicked row shows a pending save.
+  // B-1: no other control may be disabled or dimmed by a favorite save.
   await expect(page.getByRole('button', { name: '取消收藏 写作助手 · 长文示例', exact: true })).toBeEnabled();
-  // Agent icons keep their normal appearance; they must not dim or become disabled
-  // because an unrelated favorite is saving.
+  await expect(page.getByRole('button', { name: 'Skill 仓库', exact: true })).toBeEnabled();
+  await expect(page.getByRole('button', { name: '添加 Skill', exact: true })).toBeEnabled();
+  expect(await page.getByRole('button', { name: '从库删除', exact: true }).evaluateAll(nodes => nodes.every(node => !(node as HTMLButtonElement).disabled))).toBe(true);
   const icons = page.locator('.skill-sync__agent');
   expect(await icons.count()).toBeGreaterThan(0);
   expect(await icons.evaluateAll(nodes => nodes.every(node => !(node as HTMLButtonElement).disabled))).toBe(true);
   expect(await icons.evaluateAll(nodes => nodes.every(node => getComputedStyle(node).opacity === '1'))).toBe(true);
-  // The idle favorite control of the other Skill is not dimmed either.
   expect(await page.getByRole('button', { name: '取消收藏 写作助手 · 长文示例', exact: true }).evaluate(node => getComputedStyle(node).opacity)).toBe('1');
+  expect(await page.getByRole('button', { name: '从库删除', exact: true }).first().evaluate(node => getComputedStyle(node).opacity)).toBe('1');
 
-  // Releasing the parked save clears the pending state without a stale result.
-  await page.evaluate(() => (window as unknown as { releaseFavorite: (value: unknown) => void }).releaseFavorite({ skills: [] }));
-  await expect(page.getByRole('button', { name: '收藏 本机 Skill', exact: true })).toBeEnabled();
+  // Releasing the parked save commits it, so the row reports the saved favorite
+  // instead of falling back to the previous value.
+  await page.evaluate(() => (window as unknown as { releaseFavorite: () => void }).releaseFavorite());
+  await expect(page.getByRole('button', { name: '取消收藏 本机 Skill', exact: true })).toBeEnabled();
   expect(await page.locator('button[data-favorite-pending="true"]').count()).toBe(0);
-});
-
-test('the detail viewer shows library files with no read-location entry', async ({ page }) => {
-  await page.getByRole('button', { name: '写作助手 · 长文示例', exact: true }).click();
-  const dialog = page.getByRole('dialog');
-  await expect(dialog.getByRole('heading', { name: '文件与说明', exact: true })).toBeVisible();
-  await expect(dialog.getByRole('navigation', { name: 'Skill 文件', exact: true })).toBeVisible();
-  await expect(dialog.getByRole('region', { name: '文件内容', exact: true })).toBeVisible();
-  // The removed control must be gone even though this Skill has an Agent install.
-  await expect(dialog.getByText('阅读位置', { exact: true })).toHaveCount(0);
-  await expect(dialog.locator('select')).toHaveCount(0);
-  await expect(dialog.getByText('C:/AcceptanceFixture/agents/codex/skills/long', { exact: true })).toHaveCount(0);
-  // Let the dialog's entrance animation settle so the capture is deterministic.
-  await expect.poll(() => dialog.evaluate(node => getComputedStyle(node).opacity)).toBe('1');
-  await page.waitForTimeout(400);
-  await dialog.screenshot({ path: 'output/ui-skill-interactions/skill-detail-library-only.png' });
 });
 
 test('a rejected favorite save reports the error and permits a retry', async ({ page }) => {
@@ -55,7 +41,31 @@ test('a rejected favorite save reports the error and permits a retry', async ({ 
   await expect(page.getByRole('alert')).toContainText('磁盘不可写');
   await expect(page.getByRole('button', { name: '收藏 本机 Skill', exact: true })).toBeEnabled();
 
-  await page.evaluate(() => { (window as unknown as { favoriteRequest: string }).favoriteRequest = 'ok'; });
   await page.getByRole('button', { name: '收藏 本机 Skill', exact: true }).click();
   await expect(page.getByRole('button', { name: '取消收藏 本机 Skill', exact: true })).toBeEnabled();
+});
+
+test('the detail viewer shows library files with no read-location entry', async ({ page }) => {
+  await page.getByRole('button', { name: '写作助手 · 长文示例', exact: true }).click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog.getByRole('heading', { name: '文件与说明', exact: true })).toBeVisible();
+  await expect(dialog.getByRole('navigation', { name: 'Skill 文件', exact: true })).toBeVisible();
+  const content = dialog.getByRole('region', { name: '文件内容', exact: true });
+  await expect(content).toBeVisible();
+  // The removed control must be gone even though this Skill has an Agent install.
+  await expect(dialog.getByText('阅读位置', { exact: true })).toHaveCount(0);
+  await expect(dialog.locator('select')).toHaveCount(0);
+  await expect(dialog.getByText('C:/AcceptanceFixture/agents/codex/skills/long', { exact: true })).toHaveCount(0);
+  // Wait for rendered content instead of a fixed delay before capturing evidence.
+  await expect(content.getByText('这是独立预览中的示例正文', { exact: false }).first()).toBeVisible();
+  await dialog.screenshot({ path: 'output/ui-skill-interactions/skill-detail-library-only.png' });
+});
+
+test('a saved Prompt stays in the list under the prompts.save contract', async ({ page }) => {
+  await page.getByRole('button', { name: 'Prompts 收藏与复用', exact: true }).click();
+  await page.getByRole('button', { name: '添加', exact: true }).click();
+  await page.getByLabel('正文', { exact: true }).fill('新建的预览正文');
+  await page.getByRole('button', { name: '保存 Prompt', exact: true }).click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '查看 新建的预览正文', exact: true })).toBeVisible();
 });

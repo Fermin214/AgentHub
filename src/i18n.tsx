@@ -189,6 +189,8 @@ const dictionary: Dict = {
   'skills.unfavoriteLabel': { zh: '取消收藏 {name}', en: 'Remove {name} from favorites' },
   // Shown while this Skill's favorite change is still saving; other rows stay untouched.
   'skills.favoritePending': { zh: '正在保存 {name} 的收藏…', en: 'Saving {name} favorite…' },
+  // The save committed but the list could not be reloaded; never claim it failed.
+  'skills.favoriteSavedRefreshFailed': { zh: '收藏已保存，但刷新 Skill 列表失败。显示可能不是最新。', en: 'The favorite was saved, but reloading the Skill list failed. The list may be out of date.' },
   'skills.tagsDialog': { zh: '标签 · {name}', en: 'Tags · {name}' },
   'skills.saveTags': { zh: '保存标签', en: 'Save tags' },
   'skills.unbind.title': { zh: '删除来源 · {name}', en: 'Remove source · {name}' },
