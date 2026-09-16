@@ -68,6 +68,47 @@ it('does not revert another row when concurrent saves finish out of order',async
   expect(within(second).getByText('#kept')).toBeVisible();
   expect(screen.getByRole('button',{name:'取消收藏 Writer'})).toBeEnabled();
 });
+it.each(['favorite','tags'] as const)('preserves both fields when the older %s response arrives last for one Skill',async olderField=>{
+  const store:Snapshot={...structuredClone(snapshot),skills:[{id:'s',name:'Writer',path:'C:/ReviewFixture/library/writer',source:{kind:'unknown',locator:''},description:'',tags:[],favorite:false,createdAt:'',updatedAt:''}]};
+  vi.mocked(api.getSnapshot).mockResolvedValueOnce(structuredClone(store)).mockRejectedValue(new Error('review refresh unavailable'));
+  let deliverOlder!:()=>void;
+  let commits=0;
+  vi.spyOn(api,'dispatch').mockImplementation((...[method,args])=>{
+    if(method==='targets.list')return Promise.resolve({targets:[]} as never);
+    if(method==='skills.metadata.save'){
+      // The core serializes writes, but transport responses can arrive out of order.
+      // Capture each committed record before delaying only its delivery.
+      commits++;
+      store.skills=store.skills.map(skill=>args.ids.includes(skill.id)?{...skill,...(args.favorite===undefined?{}:{favorite:args.favorite}),...(args.tags===undefined?{}:{tags:args.tags}),updatedAt:`2026-09-16T12:00:0${commits}Z`}:skill);
+      const response={skills:structuredClone(store.skills.filter(skill=>args.ids.includes(skill.id)))};
+      if(args[olderField]!==undefined)return new Promise(resolve=>{deliverOlder=()=>resolve(response);}) as never;
+      return Promise.resolve(response) as never;
+    }
+    return Promise.resolve({}) as never;
+  });
+  render(<App/>);
+  await userEvent.click(await screen.findByRole('button',{name:'Skill 内容与安装位置'}));
+  const row=(await screen.findByRole('button',{name:'Writer'})).closest('article')!;
+  if(olderField==='favorite')await userEvent.click(within(row).getByRole('button',{name:'收藏 Writer'}));
+  await userEvent.click(within(row).getByRole('button',{name:'标签'}));
+  await userEvent.type(screen.getByLabelText('标签，用逗号分隔'),'kept');
+  await userEvent.click(screen.getByRole('button',{name:'保存标签'}));
+  if(olderField==='tags'){
+    await userEvent.click(within(screen.getByRole('dialog')).getByRole('button',{name:'关闭'}));
+    await userEvent.click(within(row).getByRole('button',{name:'收藏 Writer'}));
+    await waitFor(()=>expect(within(row).getByRole('button',{name:'取消收藏 Writer'})).toBeEnabled());
+  }else{
+    expect(await within(row).findByText('#kept')).toBeVisible();
+  }
+  await act(async()=>deliverOlder());
+  expect(store.skills[0]).toMatchObject({favorite:true,tags:['kept']});
+  expect(within(row).getByText('#kept')).toBeVisible();
+  expect(within(row).getByRole('button',{name:'取消收藏 Writer'})).toBeEnabled();
+  await userEvent.click(screen.getByRole('button',{name:'Prompts 收藏与复用'}));
+  await userEvent.click(screen.getByRole('button',{name:'Skill 内容与安装位置'}));
+  expect(screen.getByText('#kept')).toBeVisible();
+  expect(screen.getByRole('button',{name:'取消收藏 Writer'})).toBeEnabled();
+});
 it('keeps an ongoing check across navigation and restores its persisted update button after reopening',async()=>{
   let resolve!:(value:UpdateCheck)=>void;
   const pending=new Promise<UpdateCheck>(r=>{resolve=r;});

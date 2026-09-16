@@ -39,10 +39,21 @@ function Workspace({ lang, onLang }: { lang: Lang; onLang: (lang: Lang) => void 
   // anything it does not recognise unchanged, so one pass here covers both.
   const notify: Notify = useCallback((message, tone = 'success') => setToast({message:t.backend(message),tone}), [t]);
   const refresh = useCallback(async () => { const sequence=++refreshSequence.current; const result = await api.getSnapshot(); if(sequence===refreshSequence.current){setSnapshot(result);setError('');} }, []);
-  // `skills.metadata.save` only returns the records it touched, so merge just those by
-  // id over the latest list. Taking only the saved records matters when concurrent
-  // saves finish out of order: a stale full list would revert rows another save updated.
-  const applySkills = useCallback((saved: Skill[]) => setSnapshot(current => current ? { ...current, skills: current.skills.map(skill => saved.find(item => item.id === skill.id) ?? skill) } : current), []);
+  // Merge only the fields this request saved. Even a record for the correct id can
+  // contain stale unrelated fields when responses arrive in a different order.
+  const applySkills = useCallback((saved: Skill[], fields: Array<'favorite' | 'tags'>) => setSnapshot(current => current ? {
+    ...current,
+    skills: current.skills.map(skill => {
+      const record = saved.find(item => item.id === skill.id);
+      if (!record) return skill;
+      return {
+        ...skill,
+        ...(fields.includes('favorite') ? { favorite: record.favorite } : {}),
+        ...(fields.includes('tags') ? { tags: record.tags } : {}),
+        updatedAt: !skill.updatedAt || Date.parse(record.updatedAt) > Date.parse(skill.updatedAt) ? record.updatedAt : skill.updatedAt,
+      };
+    }),
+  } : current), []);
   const skillUpdates=useSkillUpdates(snapshot,refresh,notify);
   useEffect(() => { void refresh().catch(e => setError(String(e))); }, [refresh]);
   // The saved language wins over the system locale once local data is readable.

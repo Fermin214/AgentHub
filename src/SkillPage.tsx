@@ -1,6 +1,6 @@
 import type { InstallRequest, SkillReviewCall } from './contracts';
 import { checkError } from './checkError';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Plus, Star, RefreshCw } from 'lucide-react';
 import * as api from './api';
 import { AddSkillDialog } from './AddSkillDialog';
@@ -15,7 +15,7 @@ import { Button, Modal, PageHeader, type Notify, SearchField } from './ui';
 import { useT } from './i18n';
 import type { AgentTarget } from './TargetManager';
 import type { ChangeResult, Skill, SkillChangeAction, SkillChangePlan, Snapshot } from './types';
-type Props={snapshot:Snapshot;refresh:()=>Promise<void>;notify:Notify;controller:SkillUpdateController;projectId?:string;onProject:(id?:string)=>void;onSkills?:(saved:Skill[],all:Skill[])=>void};
+type Props={snapshot:Snapshot;refresh:()=>Promise<void>;notify:Notify;controller:SkillUpdateController;projectId?:string;onProject:(id?:string)=>void;onSkills?:(saved:Skill[],fields:Array<'favorite'|'tags'>)=>void};
 export function SkillPage({snapshot,refresh,notify,controller,projectId,onProject,onSkills}:Props) {
   const t=useT();
   const [installing,setInstalling]=useState(false);const [installQuery,setInstallQuery]=useState('');
@@ -38,11 +38,6 @@ export function SkillPage({snapshot,refresh,notify,controller,projectId,onProjec
   const [favoriteValues,setFavoriteValues]=useState<Record<string,{value:boolean;reported:boolean}>>({});
   const favoriteOf=(skill:Skill)=>favoriteValues[skill.id]?.value??skill.favorite;
   const favoritePending=(skill:Skill)=>favoriteRequests.includes(skill.id);
-  // A save resolves after an await, so the `snapshot` captured by that request is stale
-  // by then. This ref always points at the newest snapshot, which is what a partial
-  // save result has to be merged into and what may retire a committed favorite value.
-  const snapshotRef=useRef(snapshot);
-  snapshotRef.current=snapshot;
   useEffect(()=>{
     setFavoriteValues(values=>{
       // Retire the committed value once the record supports it. Before a save has been
@@ -85,9 +80,13 @@ export function SkillPage({snapshot,refresh,notify,controller,projectId,onProjec
       const records=(result?.skills??[]).filter(item=>item.id===skill.id);
       if(pending)setFavoriteValues(values=>({...values,[skill.id]:{value:!!(records.find(item=>item.id===skill.id)??{favorite:patch.favorite}).favorite,reported:!!onSkills}}));
       if(!pending)setMetadata(undefined);
-      // The saved records let a merging caller touch only what changed; the current
-      // full list lets a caller that replaces its list keep every unrelated Skill.
-      onSkills?.(records,snapshotRef.current.skills);
+      // A response contains the entire record at commit time. Only the fields this
+      // request changed may replace current values: another save of the same Skill
+      // may already have delivered newer tags or favorite state.
+      const fields:Array<'favorite'|'tags'>=[];
+      if(patch.favorite!==undefined)fields.push('favorite');
+      if(patch.tags!==undefined)fields.push('tags');
+      onSkills?.(records,fields);
     }catch(e){
       setError(String(e));
     }finally{if(pending)setFavoriteRequests(ids=>ids.filter(id=>id!==skill.id));else endBusy();}

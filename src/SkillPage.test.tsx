@@ -138,9 +138,8 @@ it('applies the authoritative save result and keeps it until the snapshot confir
   // The shell receives only this save's records, so a merging caller cannot revert
   // any row another concurrent save already committed.
   expect(onSkills.mock.calls[0][0]).toEqual([expect.objectContaining({id:'s',favorite:true})]);
-  // It also receives the current full list, so a caller that replaces its list keeps
-  // the unrelated row instead of dropping it.
-  expect(onSkills.mock.calls[0][1]).toEqual([expect.objectContaining({id:'s'}),expect.objectContaining({id:'s2',name:'Second'})]);
+  // The shell must not replace tags or other fields from a favorite-only response.
+  expect(onSkills.mock.calls[0][1]).toEqual(['favorite']);
   expect(frozen).toHaveBeenCalled();
   // A stale reload must not drop the committed value back to the old record.
   expect(screen.getByRole('button',{name:'取消收藏 Writer'})).toBeEnabled();
