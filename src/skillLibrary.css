@@ -90,7 +90,6 @@
 .modal__body:has(> .toolkit-reader) { display: flex; overflow: hidden; }
 .toolkit-reader { display: flex; flex-direction: column; min-height: 0; width: 100%; }
 .toolkit-reader > h3, .toolkit-reader > p { flex-shrink: 0; margin: 0 0 12px; }
-.toolkit-reader > .field { flex-shrink: 0; margin-bottom: 12px; }
 .toolkit-reader h3 { display: flex; align-items: center; gap: 7px; }
 .toolkit-reader__layout { display: grid; grid-template-columns: minmax(120px, 190px) minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); border: 1px solid var(--line); border-radius: var(--r-md); overflow: hidden; flex: 1 1 520px; height: 520px; min-height: 0; }
 .toolkit-reader nav { min-height: 0; overflow: auto; overscroll-behavior: contain; border-right: 1px solid var(--line); padding: 6px; background: var(--well); }

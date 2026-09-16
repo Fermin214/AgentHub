@@ -134,6 +134,19 @@ it('checks all bound Skills and continues after a failure, skipping unknown sour
   expect(screen.getByRole('alert')).toHaveTextContent('1 个 Skill 检查失败（Writer）');
 });
 
+it('offers no read location even when an installed copy exists',async()=>{
+  const dispatch=vi.spyOn(api,'dispatch').mockImplementation(async (...[method]) =>method==='targets.list'?{targets} as never:method==='skills.files'?{files:[{path:'SKILL.md',size:1}]} as never:{content:'Library body'} as never);
+  const deployment={id:'deployed',skillId:'s',name:'Writer',description:'',agent:'codex',scope:'global' as const,path:'C:/agent/skills/writer',source,owner:'user' as const,status:'present',ignored:false,present:true};
+  render(<SkillPage snapshot={{...snapshot,deployments:[deployment]}} refresh={vi.fn()} notify={vi.fn()} onProject={vi.fn()}/>);
+  await userEvent.click(await screen.findByRole('button',{name:'Writer'}));
+  expect(await screen.findByText('Library body')).toBeVisible();
+  const dialog=within(screen.getByRole('dialog'));
+  expect(dialog.queryByLabelText('阅读位置')).not.toBeInTheDocument();
+  expect(dialog.queryByRole('combobox')).not.toBeInTheDocument();
+  expect(dialog.queryByText('C:\\agent\\skills\\writer')).not.toBeInTheDocument();
+  expect(dispatch).toHaveBeenCalledWith('skills.files',{skillId:'s'});
+  expect(dispatch.mock.calls.flatMap(([m,args])=>m==='skills.files'||m==='skills.read'?[args]:[]).every(args=>!('deploymentId' in args))).toBe(true);
+});
 it('filters all Agents to the selected project and can install another library Skill there',async()=>{
  const project={id:'p',name:'Project',path:'C:/project',gitTrusted:false,archived:false,createdAt:'',updatedAt:''};
  const local={...snapshot.skills[0],id:'local',name:'Project writer'};

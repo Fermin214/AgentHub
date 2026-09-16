@@ -287,10 +287,8 @@ const dictionary: Dict = {
   'import.scanDetails': { zh: '查找详情', en: 'Scan details' },
   'import.failed': { zh: '导入失败', en: 'Import failed' },
 
-  // Skill contents reader
+  // Skill contents reader (always the Skill library copy)
   'contents.title': { zh: '文件与说明', en: 'Files' },
-  'contents.location': { zh: '阅读位置', en: 'Read from' },
-  'contents.library': { zh: 'Skill 库', en: 'Skill library' },
   'contents.files': { zh: 'Skill 文件', en: 'Skill files' },
   'contents.reading': { zh: '正在读取文件…', en: 'Loading file…' },
 

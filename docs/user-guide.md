@@ -12,7 +12,7 @@ To add a Skill, open **Skills → Add Skill**, enter a Git repository, HTTPS ZIP
 
 Source inspection shows its current stage and elapsed time. Use **Cancel**, the close button, or Escape in the Add Skill dialog to stop an inspection. Wait for cancellation and cleanup before retrying; a second inspection cannot run in the same data directory at the same time. Errors provide a short explanation and expandable diagnostics. Saving a selected Skill is a separate operation; its dialog stays protected until saving finishes.
 
-Click a Skill name to view its files. The file list and text scroll independently; focus either pane to use Page Up / Page Down. For a Git web source, **Open source repository ↗** opens the repository home. Local, ZIP, or unknown sources keep the internal viewer without a repository link. Project repository bookmarks also use an explicit external link.
+Click a Skill name to view the files of the Skill library copy. The file list and text scroll independently; focus either pane to use Page Up / Page Down. For a Git web source, **Open source repository ↗** opens the repository home. Local, ZIP, or unknown sources keep the internal viewer without a repository link. Project repository bookmarks also use an explicit external link.
 
 Check updates before applying changes and review the affected locations. Agent icons retain their brand colors; a check mark and green border indicate installation, while a disabled control is dimmed. Prompts and Skills remain local records even when their source is online.
 
