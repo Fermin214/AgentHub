@@ -14,6 +14,8 @@ test('a pending favorite save keeps other Skills, Agent icons, and top actions u
   const saving = page.getByRole('button', { name: '正在保存 本机 Skill 的收藏…', exact: true });
   await expect(saving).toBeVisible();
   await expect(saving).toBeDisabled();
+  await expect(saving).toHaveCSS('cursor', 'pointer');
+  await expect(saving).toHaveCSS('opacity', '1');
   expect(await page.locator('button[data-favorite-pending="true"]').count()).toBe(1);
 
   // B-1: no other control may be disabled or dimmed by a favorite save.
@@ -34,6 +36,34 @@ test('a pending favorite save keeps other Skills, Agent icons, and top actions u
   await expect(page.getByRole('button', { name: '取消收藏 本机 Skill', exact: true })).toBeEnabled();
   expect(await page.locator('button[data-favorite-pending="true"]').count()).toBe(0);
 });
+
+for (const lang of ['zh', 'en'] as const) {
+  for (const [width, height] of [[1280, 860], [860, 640]]) {
+    test(`Skill actions remain on one line at ${width}x${height} (${lang})`, async ({ page }, testInfo) => {
+      await page.setViewportSize({ width, height });
+      if (lang === 'en') {
+        await page.getByRole('button', { name: '设置 Agent 与本地偏好', exact: true }).click();
+        await page.getByRole('tab', { name: '关于', exact: true }).click();
+        await page.getByRole('combobox', { name: '界面语言', exact: true }).selectOption('en');
+        await page.getByRole('button', { name: 'Skills Content and install locations', exact: true }).click();
+      }
+      const rows = page.locator('.skill-row');
+      expect(await rows.count()).toBeGreaterThan(0);
+      for (const row of await rows.all()) {
+        const geometry = await row.evaluate(node => {
+          const actions = node.querySelector('.library-actions')!;
+          const buttons = [...actions.querySelectorAll('button')].map(button => button.getBoundingClientRect());
+          const rowBox = node.getBoundingClientRect();
+          return { centers: buttons.map(box => box.top + box.height / 2), left: buttons[0].left, right: buttons.at(-1)!.right, rowLeft: rowBox.left, rowRight: rowBox.right };
+        });
+        expect(Math.max(...geometry.centers) - Math.min(...geometry.centers)).toBeLessThanOrEqual(1);
+        expect(geometry.left).toBeGreaterThanOrEqual(geometry.rowLeft);
+        expect(geometry.right).toBeLessThanOrEqual(geometry.rowRight + 1);
+      }
+      await page.screenshot({ path: testInfo.outputPath(`skill-actions-${lang}-${width}.png`), fullPage: true });
+    });
+  }
+}
 
 test('a rejected favorite save reports the error and permits a retry', async ({ page }) => {
   await page.evaluate(() => { (window as unknown as { favoriteRequest: string }).favoriteRequest = 'reject'; });

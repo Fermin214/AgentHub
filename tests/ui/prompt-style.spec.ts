@@ -4,11 +4,7 @@ import { expect, test, type Locator, type Page, type TestInfo } from '@playwrigh
 /// rendered contracts, so these tests measure real geometry in Edge on the real
 /// App shell (`tests/ui/prompt-cards.html`) instead of asserting class names.
 ///
-/// The shared preview fixture is not used: its `prompts.save` response violates
-/// `Contract<{ prompt: Prompt }, Prompt>` and crashes the page as soon as a
-/// Prompt is created. That fixture finding belongs to the Skill/shared-fixture
-/// owner; this harness only supplies fictional data through the simulated IPC
-/// transport and never touches `tests/ui/fixture.js`.
+/// The dedicated fixture provides the same long titles in both languages.
 
 const TITLES = {
   chinese: '请把这段很长的中文标题写完整一些用于检查卡片标题在连续中文下的换行表现是否依然不会挤压右侧按钮并且保持可读',
@@ -73,7 +69,7 @@ function expectPreviewLabel(label: string, title: string, id: string) {
   expect(label, id + ' preview label carries the full title').toMatch(new RegExp(`^(查看|View) ${title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`));
 }
 
-/// A wrapped title must grow downward, exactly one line box per wrapped line.
+/// Card titles reserve at most two lines; preview retains the complete title.
 async function expectTitleLineBoxes(card: Locator, id: string) {
   const measured = await card.evaluate((node) => {
     const heading = node.querySelector('h3');
@@ -90,8 +86,7 @@ async function expectTitleLineBoxes(card: Locator, id: string) {
     return { height, lines: Math.max(1, Math.round(height / lineHeight)), lineHeight };
   });
   expect(measured.lines, id + ' title wraps onto at least one line').toBeGreaterThanOrEqual(1);
-  // The heading box covers its whole wrapped content, never a clipped single line.
-  expect(measured.height, id + ' heading box covers every wrapped line').toBeGreaterThanOrEqual(measured.lines * measured.lineHeight - 1);
+  expect(measured.lines, id + ' title occupies at most two lines').toBeLessThanOrEqual(2);
   return measured;
 }
 
@@ -157,7 +152,7 @@ for (const lang of ['zh', 'en'] as const) {
         await card.scrollIntoViewIfNeeded();
         const geometry = await expectSameRowAlignment(card, id);
         await card.screenshot({ path: testInfo.outputPath(`prompt-card-${lang}-${width}-${id}.png`) });
-        // The title still wraps inside the card instead of being clipped.
+        // Unbroken words wrap before the two-line ellipsis, never horizontally.
         const overflow = await card.locator('h3').evaluate((node) => ({ scrollWidth: node.scrollWidth, clientWidth: node.clientWidth }));
         expect(overflow.scrollWidth, id + ' title text is not clipped').toBeLessThanOrEqual(overflow.clientWidth + 1);
         expect(overflow.clientWidth, id + ' title keeps usable width').toBeGreaterThan(60);
@@ -165,6 +160,11 @@ for (const lang of ['zh', 'en'] as const) {
 
       const grid = await page.locator('.prompt-grid').evaluate((node) => ({ scrollWidth: node.scrollWidth, clientWidth: node.clientWidth }));
       expect(grid.scrollWidth, 'the grid does not scroll horizontally').toBeLessThanOrEqual(grid.clientWidth + 1);
+      const heights = await page.locator('.prompt-card').evaluateAll(nodes => nodes.map(node => node.getBoundingClientRect().height));
+      expect(new Set(heights).size, 'short and long titles use equal card heights').toBe(1);
+      expect(heights[0], 'cards remain compact').toBeLessThanOrEqual(240);
+      const longTitle = page.locator('.prompt-card__title h3').filter({ hasText: TITLES.unbroken });
+      expect(await longTitle.evaluate(node => node.scrollHeight > node.clientHeight), 'the long title is truncated').toBe(true);
       // The two-column grid must use the real content area: each card is about
       // half of `.page-wrap` minus the grid gap, so the measurement is not taken
       // in a narrower synthetic layout.
@@ -174,6 +174,31 @@ for (const lang of ['zh', 'en'] as const) {
       expect(cardWidth, 'the card is not wider than the content area').toBeLessThanOrEqual(contentWidth);
 
       await page.screenshot({ path: testInfo.outputPath(`prompt-grid-${lang}-${width}x${height}.png`), fullPage: true });
+
+      await longTitle.click();
+      const dialog = page.getByRole('dialog');
+      await expect(dialog.getByRole('heading', { name: TITLES.unbroken, exact: true })).toBeVisible();
+      await expect(dialog.locator('.prompt-preview-body')).toContainText('第一行示例正文');
+      const bounds = await dialog.evaluate(node => {
+        const header = node.querySelector('.modal__header')!;
+        const body = node.querySelector('.modal__body')!;
+        const footer = node.querySelector('.modal__footer')!;
+        const heading = header.querySelector('h2')!;
+        return {
+          overflow: [node, header, body, heading].some(el => el.scrollWidth > el.clientWidth + 1),
+          bodyHeight: body.getBoundingClientRect().height,
+          footerBottom: footer.getBoundingClientRect().bottom,
+          closeRight: header.querySelector('button')!.getBoundingClientRect().right,
+          dialogRight: node.getBoundingClientRect().right,
+        };
+      });
+      expect(bounds.overflow, 'preview has no horizontal overflow').toBe(false);
+      expect(bounds.bodyHeight, 'the body is not squeezed out by the title').toBeGreaterThan(60);
+      expect(bounds.footerBottom).toBeLessThanOrEqual(height);
+      expect(bounds.closeRight).toBeLessThanOrEqual(bounds.dialogRight);
+      await dialog.screenshot({ path: testInfo.outputPath(`prompt-preview-${lang}-${width}.png`) });
+      await dialog.locator('.modal__footer button').first().click();
+      await expect(dialog).toBeHidden();
     });
   }
 }
