@@ -13,6 +13,15 @@ it('sorts results by actual updated date or title independently of favorites',as
  expect(screen.getAllByRole('button',{name:/查看 /})[0]).toHaveTextContent('A first');
 });
 
+it('keeps a long, unbreakable card title intact for preview and editing',async()=>{
+ const title='AntiDisestablishmentarianismPneumonoultramicroscopicsilicovolcanoconiosisFloccinaucinihilipilification';
+ render(<PromptsPage prompts={[{...prompt,title}]} notify={vi.fn()} onSnapshot={vi.fn()}/>);
+ const card=screen.getByRole('article');
+ expect(card.querySelector('h3')).toHaveTextContent(title);
+ await userEvent.click(screen.getByRole('button',{name:`查看 ${title}`}));
+ expect(screen.getByRole('dialog')).toHaveTextContent(title);
+});
+
 it('previews full multiline text without copying and preserves purpose when editing',async()=>{
  const body='  第一行\n\n'+('很长的正文。'.repeat(120))+'\n最后一行  ';
  const item={...prompt,body,purpose:'整理采访记录'};

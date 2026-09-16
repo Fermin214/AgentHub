@@ -130,7 +130,9 @@ h1, h2, h3 { font-family: var(--display); font-weight: 600; color: var(--ink-str
 .prompt-card__top { display: flex; justify-content: space-between; align-items: center; padding: 10px 12px 0; }
 .prompt-card__actions { display: flex; align-items: center; gap: 2px; }
 .prompt-card__copy { display: block; width: 100%; flex: 1; text-align: left; border: 0; background: transparent; padding: 4px 15px 8px; }
-.prompt-card__copy h3 { margin: 0 0 9px; font-size: 15.5px; letter-spacing: -.008em; }
+/* A title with no break opportunity (one long Latin token) must wrap inside the
+   card instead of being clipped by the card's overflow. */
+.prompt-card__copy h3 { margin: 0 0 9px; font-size: 15.5px; letter-spacing: -.008em; overflow-wrap: anywhere; }
 .prompt-card__copy p { height: 63px; overflow: hidden; margin: 0; color: var(--ink-soft); font-size: 12.5px; line-height: 1.68; white-space: pre-wrap; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; }
 /* Always visible: a copy affordance revealed only on hover is not discoverable. */
 .prompt-card__bottom { min-height: 38px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 15px 12px; }
