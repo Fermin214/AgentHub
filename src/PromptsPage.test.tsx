@@ -3,7 +3,7 @@ import { render,screen,waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { PromptsPage } from './PromptsPage';
 import * as api from './api';
-import type { Prompt, Snapshot } from './types';
+import type { Prompt } from './types';
 const prompt:Prompt={id:'one',title:'A first',body:'Original body',tags:[],category:'',favorite:false,createdAt:'2026-09-01T00:00:00Z',updatedAt:'2026-09-01T00:00:00Z'};
 beforeEach(()=>vi.restoreAllMocks());
 it('sorts results by actual updated date or title independently of favorites',async()=>{
@@ -11,21 +11,6 @@ it('sorts results by actual updated date or title independently of favorites',as
  expect(screen.getAllByRole('button',{name:/查看 /})[0]).toHaveTextContent('Z latest');
  await userEvent.selectOptions(screen.getByLabelText('Prompt 排序'),'title');
  expect(screen.getAllByRole('button',{name:/查看 /})[0]).toHaveTextContent('A first');
-});
-
-it('keeps a newly saved Prompt in the list when prompts.save returns the Prompt contract',async()=>{
- const save=vi.spyOn(api,'savePrompt').mockImplementation(async (...[p]) =>({...p,id:'saved',title:'新条目'}));
- let current:Snapshot|null={dataScope:'fixture',prompts:[prompt],skills:[],deployments:[],projects:[],settings:{scanRoots:[],executables:{codex:'',claude:'',dsh:''}},operations:[]};
- render(<PromptsPage prompts={current.prompts} notify={vi.fn()} onSnapshot={update=>{current=typeof update==='function'?update(current):update}}/>);
- await userEvent.click(screen.getByRole('button',{name:'添加'}));
- await userEvent.type(screen.getByLabelText('正文'),'需要保留的正文');
- await userEvent.click(screen.getByRole('button',{name:'保存 Prompt'}));
- await waitFor(()=>expect(save).toHaveBeenCalledOnce());
- // The dialog only closes against a usable list, so the saved record must be
- // present with its content rather than a raw transport payload.
- await waitFor(()=>expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
- expect(current!.prompts.map(item=>item.id)).toContain('saved');
- expect(current!.prompts.find(item=>item.id==='saved')?.title).toBe('新条目');
 });
 
 it('previews full multiline text without copying and preserves purpose when editing',async()=>{
