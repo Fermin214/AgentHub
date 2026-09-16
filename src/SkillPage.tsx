@@ -1,6 +1,6 @@
 import type { InstallRequest, SkillReviewCall } from './contracts';
 import { checkError } from './checkError';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Plus, Star, RefreshCw } from 'lucide-react';
 import * as api from './api';
 import { AddSkillDialog } from './AddSkillDialog';
@@ -15,7 +15,7 @@ import { Button, Modal, PageHeader, type Notify, SearchField } from './ui';
 import { useT } from './i18n';
 import type { AgentTarget } from './TargetManager';
 import type { ChangeResult, Skill, SkillChangeAction, SkillChangePlan, Snapshot } from './types';
-type Props={snapshot:Snapshot;refresh:()=>Promise<void>;notify:Notify;controller:SkillUpdateController;projectId?:string;onProject:(id?:string)=>void;onSkills?:(skills:Skill[])=>void};
+type Props={snapshot:Snapshot;refresh:()=>Promise<void>;notify:Notify;controller:SkillUpdateController;projectId?:string;onProject:(id?:string)=>void;onSkills?:(saved:Skill[],all:Skill[])=>void};
 export function SkillPage({snapshot,refresh,notify,controller,projectId,onProject,onSkills}:Props) {
   const t=useT();
   const [installing,setInstalling]=useState(false);const [installQuery,setInstallQuery]=useState('');
@@ -33,18 +33,29 @@ export function SkillPage({snapshot,refresh,notify,controller,projectId,onProjec
   // - `favoriteRequests` is the in-flight request lock (dedupe only, per Skill id);
   // - `favoriteValues` holds the value the store committed, shown until a snapshot
   //   confirms it, so a slow or failed reload cannot revive the previous value;
-  // - once a snapshot arrives the committed value is dropped and the record rules.
+  // - an effect over the *current* snapshot retires that value once the record agrees.
   const [favoriteRequests,setFavoriteRequests]=useState<string[]>([]);
-  const [favoriteValues,setFavoriteValues]=useState<Record<string,boolean>>({});
-  const favoriteOf=(skill:Skill)=>favoriteValues[skill.id]??skill.favorite;
+  const [favoriteValues,setFavoriteValues]=useState<Record<string,{value:boolean;reported:boolean}>>({});
+  const favoriteOf=(skill:Skill)=>favoriteValues[skill.id]?.value??skill.favorite;
   const favoritePending=(skill:Skill)=>favoriteRequests.includes(skill.id);
-  // Drop a committed value only once a snapshot actually shows it; while the reload
-  // result is missing or stale, the committed value stays authoritative.
-  const confirmFavorites=(records:Skill[])=>setFavoriteValues(values=>{
-    const confirmed=Object.keys(values).filter(id=>records.some(record=>record.id===id&&record.favorite===values[id]));
-    if(!confirmed.length)return values;
-    const next={...values};for(const id of confirmed)delete next[id];return next;
-  });
+  // A save resolves after an await, so the `snapshot` captured by that request is stale
+  // by then. This ref always points at the newest snapshot, which is what a partial
+  // save result has to be merged into and what may retire a committed favorite value.
+  const snapshotRef=useRef(snapshot);
+  snapshotRef.current=snapshot;
+  useEffect(()=>{
+    setFavoriteValues(values=>{
+      // Retire the committed value once the record supports it. Before a save has been
+      // reported, only an exact match counts, so the value that prompted the save still
+      // wins; after it is reported, any snapshot newer than that save is authoritative.
+      const settled=Object.entries(values).filter(([id,entry])=>{
+        const record=snapshot.skills.find(item=>item.id===id);
+        return !!record&&(record.favorite===entry.value||entry.reported);
+      }).map(([id])=>id);
+      if(!settled.length)return values;
+      const next={...values};for(const id of settled)delete next[id];return next;
+    });
+  },[snapshot]);
   const readingSource = reading ? sourceWebUrl(reading.source) : undefined;
   const {checks,checkingIds,checkProgress}=controller;
   const [unbinding,setUnbinding]=useState<Skill>();
@@ -68,20 +79,22 @@ export function SkillPage({snapshot,refresh,notify,controller,projectId,onProjec
     try{
       const result=await api.dispatch('skills.metadata.save',{ids:[skill.id],...patch});
       saved=true;
-      // Keep only the requested records, then merge them over a snapshot that already
-      // contains other operations' results, so a caller that simply replaces its list
-      // still keeps every unrelated Skill visible.
+      // Pass only the records this save actually committed. Never rebuild a "full"
+      // list from this request's stale snapshot: when requests finish out of order,
+      // that would hand the shell old copies of rows another save already updated.
       const records=(result?.skills??[]).filter(item=>item.id===skill.id);
-      const merged=snapshot.skills.map(existing=>records.find(item=>item.id===existing.id)??existing);
-      if(pending)setFavoriteValues(values=>({...values,[skill.id]:!!(records.find(item=>item.id===skill.id)??{favorite:patch.favorite}).favorite}));
+      if(pending)setFavoriteValues(values=>({...values,[skill.id]:{value:!!(records.find(item=>item.id===skill.id)??{favorite:patch.favorite}).favorite,reported:!!onSkills}}));
       if(!pending)setMetadata(undefined);
-      onSkills?.(merged);
+      // The saved records let a merging caller touch only what changed; the current
+      // full list lets a caller that replaces its list keep every unrelated Skill.
+      onSkills?.(records,snapshotRef.current.skills);
     }catch(e){
       setError(String(e));
     }finally{if(pending)setFavoriteRequests(ids=>ids.filter(id=>id!==skill.id));else endBusy();}
-    // The committed value stays authoritative until a snapshot confirms it, so a
-    // reload that is slow, stale or failed cannot revive the previous value.
-    try{await refresh();if(pending)confirmFavorites(snapshot.skills);}
+    // The committed value stays authoritative until a snapshot supports it, so a reload
+    // that is slow, stale or failed cannot revive the previous value. Retiring it is
+    // the effect's job, because this request's captured snapshot is already stale.
+    try{await refresh();}
     catch(e){
       // Only a committed save may report "saved but not reloaded"; a failed save
       // keeps its own accurate error.

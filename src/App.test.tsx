@@ -35,6 +35,39 @@ it('keeps other Skills in the list when metadata.save returns only the saved rec
   expect(screen.getByRole('button',{name:'Second'})).toBeInTheDocument();
   expect(screen.getByRole('button',{name:'取消收藏 Writer'})).toBeEnabled();
 });
+it('does not revert another row when concurrent saves finish out of order',async()=>{
+  const write=structuredClone(snapshot);
+  write.skills=[{id:'s',name:'Writer',path:'C:/library/writer',source:{kind:'unknown' as const,locator:''},description:'',tags:[],favorite:false,createdAt:'',updatedAt:''},{id:'s2',name:'Second',path:'C:/library/second',source:{kind:'unknown' as const,locator:''},description:'',tags:[],favorite:false,createdAt:'',updatedAt:''}];
+  const pendingSaves:Array<{finish:()=>void}>=[];
+  vi.mocked(api.getSnapshot).mockResolvedValueOnce(structuredClone(write)).mockRejectedValue(new Error('reload failed'));
+  vi.spyOn(api,'dispatch').mockImplementation((...[method,args])=>{
+    if(method==='targets.list')return Promise.resolve({targets:[]} as never);
+    if(method==='bookmarks.sync')return Promise.resolve({items:[]} as never);
+    if(method==='skills.metadata.save')return new Promise(resolve=>{
+      pendingSaves.push({finish:()=>{
+        write.skills=write.skills.map(skill=>args.ids.includes(skill.id)?{...skill,...(args.favorite===undefined?{}:{favorite:args.favorite}),...(args.tags===undefined?{}:{tags:args.tags})}:skill);
+        resolve({skills:structuredClone(write.skills.filter(skill=>args.ids.includes(skill.id)))} as never);
+      }});
+    }) as never;
+    return Promise.resolve({} as never);
+  });
+  render(<App/>);
+  await userEvent.click(await screen.findByRole('button',{name:'Skill 内容与安装位置'}));
+  await userEvent.click(await screen.findByRole('button',{name:'收藏 Writer'}));
+  const second=screen.getByRole('button',{name:'Second'}).closest('article')!;
+  await userEvent.click(within(second).getByRole('button',{name:'标签'}));
+  await userEvent.type(screen.getByLabelText('标签，用逗号分隔'),'kept');
+  await userEvent.click(screen.getByRole('button',{name:'保存标签'}));
+  expect(pendingSaves).toHaveLength(2);
+  // The tags save lands first, then the earlier favorite request finishes late.
+  await act(async()=>pendingSaves[1].finish());
+  expect(within(second).getByText('#kept')).toBeVisible();
+  await act(async()=>pendingSaves[0].finish());
+  // The late save must not hand back stale copies of the other row.
+  expect(write.skills.find(skill=>skill.id==='s2')!.tags).toEqual(['kept']);
+  expect(within(second).getByText('#kept')).toBeVisible();
+  expect(screen.getByRole('button',{name:'取消收藏 Writer'})).toBeEnabled();
+});
 it('keeps an ongoing check across navigation and restores its persisted update button after reopening',async()=>{
   let resolve!:(value:UpdateCheck)=>void;
   const pending=new Promise<UpdateCheck>(r=>{resolve=r;});

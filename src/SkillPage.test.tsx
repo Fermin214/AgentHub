@@ -135,9 +135,12 @@ it('applies the authoritative save result and keeps it until the snapshot confir
   render(<Harness refresh={frozen} notify={vi.fn()} onProject={vi.fn()} onSkills={onSkills}/>);
   fireEvent.click(await screen.findByRole('button',{name:'收藏 Writer'}));
   await act(async()=>settle(0));
-  // B2-2: the shell receives a complete list, so replacing its skills keeps the
-  // unrelated row instead of dropping it.
-  expect(onSkills).toHaveBeenCalledWith([expect.objectContaining({id:'s',favorite:true}),expect.objectContaining({id:'s2',name:'Second'})]);
+  // The shell receives only this save's records, so a merging caller cannot revert
+  // any row another concurrent save already committed.
+  expect(onSkills.mock.calls[0][0]).toEqual([expect.objectContaining({id:'s',favorite:true})]);
+  // It also receives the current full list, so a caller that replaces its list keeps
+  // the unrelated row instead of dropping it.
+  expect(onSkills.mock.calls[0][1]).toEqual([expect.objectContaining({id:'s'}),expect.objectContaining({id:'s2',name:'Second'})]);
   expect(frozen).toHaveBeenCalled();
   // A stale reload must not drop the committed value back to the old record.
   expect(screen.getByRole('button',{name:'取消收藏 Writer'})).toBeEnabled();
@@ -189,6 +192,29 @@ it('allows favoriting after a tags save and its snapshot confirmation completed'
   // A tags save must not leave a favorite record behind that blocks the star.
   expect(saves.filter(save=>save.favorite!==undefined)).toHaveLength(1);
   expect(saves[1]).toMatchObject({ids:['s'],favorite:true});
+});
+it('retires a committed favorite once a new snapshot arrives and then follows new values',async()=>{
+  // A container with real React state: passing a new snapshot prop is what actually
+  // confirms a committed value, so the override lifecycle is observable here.
+  const baseProps={notify:vi.fn(),onProject:vi.fn(),refresh:vi.fn().mockResolvedValue(undefined)};
+  const Container=({next}:{next:Skill[]})=>{
+    const current={...snapshot,skills:next};
+    const controller=useSkillUpdates(current,baseProps.refresh,baseProps.notify);
+    return <SkillPageView {...baseProps} snapshot={current} controller={controller}/>;
+  };
+  const committed=twoSkillList();committed[0]={...committed[0],favorite:true};
+  const reverted=twoSkillList();
+  const {settle}=favoriteDispatch();
+  const view=render(<Container next={twoSkillList()}/>);
+  fireEvent.click(await screen.findByRole('button',{name:'收藏 Writer'}));
+  await act(async()=>settle(0));
+  expect(screen.getByRole('button',{name:'取消收藏 Writer'})).toBeEnabled();
+  // A snapshot that carries the committed value retires the local override.
+  await act(async()=>view.rerender(<Container next={committed}/>));
+  expect(screen.getByRole('button',{name:'取消收藏 Writer'})).toBeEnabled();
+  // A later authoritative snapshot that changes it must now be able to take over.
+  await act(async()=>view.rerender(<Container next={reverted}/>));
+  expect(screen.getByRole('button',{name:'收藏 Writer'})).toBeEnabled();
 });
 it('reports a failed snapshot reload as saved-but-stale instead of unsaved',async()=>{
   const notify=vi.fn();

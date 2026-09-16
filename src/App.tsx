@@ -39,9 +39,9 @@ function Workspace({ lang, onLang }: { lang: Lang; onLang: (lang: Lang) => void 
   // anything it does not recognise unchanged, so one pass here covers both.
   const notify: Notify = useCallback((message, tone = 'success') => setToast({message:t.backend(message),tone}), [t]);
   const refresh = useCallback(async () => { const sequence=++refreshSequence.current; const result = await api.getSnapshot(); if(sequence===refreshSequence.current){setSnapshot(result);setError('');} }, []);
-  // `skills.metadata.save` only returns the records it touched, so merge them by id
-  // and keep every other Skill. Replacing the list here would drop unrelated rows
-  // until the next snapshot, and permanently if that snapshot fails.
+  // `skills.metadata.save` only returns the records it touched, so merge just those by
+  // id over the latest list. Taking only the saved records matters when concurrent
+  // saves finish out of order: a stale full list would revert rows another save updated.
   const applySkills = useCallback((saved: Skill[]) => setSnapshot(current => current ? { ...current, skills: current.skills.map(skill => saved.find(item => item.id === skill.id) ?? skill) } : current), []);
   const skillUpdates=useSkillUpdates(snapshot,refresh,notify);
   useEffect(() => { void refresh().catch(e => setError(String(e))); }, [refresh]);
