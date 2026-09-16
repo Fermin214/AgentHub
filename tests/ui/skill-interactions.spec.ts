@@ -62,17 +62,16 @@ test('the detail viewer shows library files with no read-location entry', async 
 });
 
 test('the English interface reads the library copy while an installed copy exists', async ({ page }) => {
-  // The Skill has a real Agent install at a different path, so the request must
-  // still target the library; the fixture answers any path with SKILL.md content.
-  const calls: string[] = [];
-  page.on('console', message => { if (message.text().startsWith('ipc:')) calls.push(message.text()); });
+  // The fixture answers the library and an install with different text, so the
+  // rendered body proves which copy was read. This Skill has a real install path.
   await page.evaluate(() => {
     const internals = (window as unknown as { __TAURI_INTERNALS__: { invoke: (c: string, a: unknown) => Promise<unknown> } }).__TAURI_INTERNALS__;
     const original = internals.invoke;
+    (window as unknown as { skillIpc: string[] }).skillIpc = [];
     internals.invoke = async (command, args) => {
       const method = (args as { method?: string })?.method;
-      const payload = (args as { args?: { path?: string } })?.args;
-      if (method === 'skills.read' || method === 'skills.files') console.log(`ipc:${method}:${payload?.path ?? ''}`);
+      const payload = (args as { args?: Record<string, unknown> })?.args;
+      if (method === 'skills.read' || method === 'skills.files') (window as unknown as { skillIpc: string[] }).skillIpc.push(JSON.stringify({ method, args: payload }));
       return await original(command, args);
     };
   });
@@ -87,10 +86,13 @@ test('the English interface reads the library copy while an installed copy exist
   await expect(dialog.getByText('Read from', { exact: true })).toHaveCount(0);
   await expect(dialog.locator('select')).toHaveCount(0);
   const content = dialog.getByRole('region', { name: 'File contents', exact: true });
-  await expect(content.getByText('这是独立预览中的示例正文', { exact: false }).first()).toBeVisible();
-  // No request may carry an install location, so the viewer cannot be reading the install.
-  expect(calls.some(call => call.startsWith('ipc:skills.read:'))).toBe(true);
-  expect(calls.join(' ')).not.toContain('agents/codex');
+  await expect(content.getByText('库副本正文', { exact: false })).toBeVisible();
+  await expect(content.getByText('安装副本正文', { exact: false })).toHaveCount(0);
+  // Every request must be the library read: no install id anywhere in the payload.
+  const ipc = await page.evaluate(() => (window as unknown as { skillIpc: string[] }).skillIpc);
+  expect(ipc.length).toBeGreaterThan(0);
+  expect(ipc.some(entry => entry.includes('"method":"skills.read"'))).toBe(true);
+  expect(ipc.join(' ')).not.toContain('deploymentId');
   await dialog.screenshot({ path: 'output/ui-skill-interactions/skill-detail-english-library-only.png' });
 });
 

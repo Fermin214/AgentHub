@@ -29,11 +29,22 @@ export function SkillPage({snapshot,refresh,notify,controller,projectId,onProjec
   const busy=busyCount>0;
   const beginBusy=()=>setBusyCount(count=>count+1);
   const endBusy=()=>setBusyCount(count=>count-1);
-  // A favorite save is keyed by Skill id: the row shows its own pending state, and
-  // `favoriteEdits` holds the committed result until the store confirms it.
-  const [favoriteState,setFavoriteState]=useState<Record<string,{pending:boolean;value:boolean}>>({});
-  const favoriteOf=(skill:Skill)=>favoriteState[skill.id]?.value??skill.favorite;
-  const favoritePending=(skill:Skill)=>!!favoriteState[skill.id]?.pending;
+  // Three separate favorite concerns, so neither one can lock the row:
+  // - `favoriteRequests` is the in-flight request lock (dedupe only, per Skill id);
+  // - `favoriteValues` holds the value the store committed, shown until a snapshot
+  //   confirms it, so a slow or failed reload cannot revive the previous value;
+  // - once a snapshot arrives the committed value is dropped and the record rules.
+  const [favoriteRequests,setFavoriteRequests]=useState<string[]>([]);
+  const [favoriteValues,setFavoriteValues]=useState<Record<string,boolean>>({});
+  const favoriteOf=(skill:Skill)=>favoriteValues[skill.id]??skill.favorite;
+  const favoritePending=(skill:Skill)=>favoriteRequests.includes(skill.id);
+  // Drop a committed value only once a snapshot actually shows it; while the reload
+  // result is missing or stale, the committed value stays authoritative.
+  const confirmFavorites=(records:Skill[])=>setFavoriteValues(values=>{
+    const confirmed=Object.keys(values).filter(id=>records.some(record=>record.id===id&&record.favorite===values[id]));
+    if(!confirmed.length)return values;
+    const next={...values};for(const id of confirmed)delete next[id];return next;
+  });
   const readingSource = reading ? sourceWebUrl(reading.source) : undefined;
   const {checks,checkingIds,checkProgress}=controller;
   const [unbinding,setUnbinding]=useState<Skill>();
@@ -48,33 +59,38 @@ export function SkillPage({snapshot,refresh,notify,controller,projectId,onProjec
   const deleteSkill=async()=>{if(!deleting)return;beginBusy();setError('');let pending:SkillChangePlan|undefined;try{pending=await api.dispatch('skills.delete.preview',{skillId:deleting.id,removeDeployments});if(!pending.canExecute)throw Error(pending.blockedReason||pending.summary);const result=await api.dispatch('skills.delete',{planId:pending.id,confirmed:true});if(result.status!=='succeeded')throw Error(result.summary);await refresh();setDeleting(undefined);notify(result.summary,'success');}catch(e){setError(String(e));}finally{if(pending)await api.dispatch('skills.cancel',{planId:pending.id}).catch(()=>{});endBusy();}};
   const showDeleteDetails=async()=>{if(!deleting)return;beginBusy();setError('');try{const p=await api.dispatch('skills.delete.preview',{skillId:deleting.id,removeDeployments});setDeleteDetails(p);await api.dispatch('skills.cancel',{planId:p.id});}catch(e){setError(String(e));}finally{endBusy();}};
   const saveMetadata=async(skill:Skill,patch:{favorite?:boolean;tags?:string[]},pending?:boolean)=>{
-    // A favorite save is keyed by Skill id, so a repeat click while its request is
-    // in flight cannot queue a duplicate save; tags keep the page-wide guard.
-    if(pending&&favoriteState[skill.id])return;
-    if(pending)setFavoriteState(state=>({...state,[skill.id]:{pending:true,value:!!patch.favorite}}));else beginBusy();
+    // Only the in-flight request is a lock. A committed value is not, so a finished
+    // save (successful or not) always leaves the row able to act again.
+    if(pending&&favoritePending(skill))return;
+    if(pending)setFavoriteRequests(ids=>[...ids,skill.id]);else beginBusy();
     setError('');
+    let saved=false;
     try{
       const result=await api.dispatch('skills.metadata.save',{ids:[skill.id],...patch});
-      // Trust the saved records: keep them visible as committed until a snapshot
-      // confirms them, so a slow or failed reload cannot revive the previous value.
-      const savedSkills=result?.skills??[];
-      setFavoriteState(state=>({...state,[skill.id]:{pending:false,value:!!(savedSkills.find(item=>item.id===skill.id)??{favorite:patch.favorite}).favorite}}));
+      saved=true;
+      // Keep only the requested records, then merge them over a snapshot that already
+      // contains other operations' results, so a caller that simply replaces its list
+      // still keeps every unrelated Skill visible.
+      const records=(result?.skills??[]).filter(item=>item.id===skill.id);
+      const merged=snapshot.skills.map(existing=>records.find(item=>item.id===existing.id)??existing);
+      if(pending)setFavoriteValues(values=>({...values,[skill.id]:!!(records.find(item=>item.id===skill.id)??{favorite:patch.favorite}).favorite}));
       if(!pending)setMetadata(undefined);
-      onSkills?.(savedSkills);
+      onSkills?.(merged);
     }catch(e){
-      setFavoriteState(state=>{const next={...state};delete next[skill.id];return next;});
       setError(String(e));
-    }finally{if(!pending)endBusy();}
-    try{await refresh();}
+    }finally{if(pending)setFavoriteRequests(ids=>ids.filter(id=>id!==skill.id));else endBusy();}
+    // The committed value stays authoritative until a snapshot confirms it, so a
+    // reload that is slow, stale or failed cannot revive the previous value.
+    try{await refresh();if(pending)confirmFavorites(snapshot.skills);}
     catch(e){
-      // A committed save is not unsaved just because the reload failed, but the row
-      // must not keep offering a stale value without saying so.
-      if(pending)notify(t('skills.favoriteSavedRefreshFailed'),'error');
-      else setError(String(e));
+      // Only a committed save may report "saved but not reloaded"; a failed save
+      // keeps its own accurate error.
+      if(pending&&saved)notify(t('skills.favoriteSavedRefreshFailed'),'error');
+      else if(!pending)setError(String(e));
     }
   };
   const toggleFavorite=(skill:Skill)=>{
-    if(favoriteState[skill.id])return;
+    if(favoritePending(skill))return;
     void saveMetadata(skill,{favorite:!favoriteOf(skill)},true);
   };
   const visible=snapshot.skills.filter(s=>(!query||[s.name,s.description,...s.tags].join(' ').toLowerCase().includes(query.toLowerCase()))&&(!tag||s.tags.includes(tag))&&(!favorite||favoriteOf(s))&&(!project||deployments(s).some(d=>skillPresent(d)&&(d.projectId===project.id||(d.scope==='project'&&targets.some(target=>agentLocations(target.id,[d],targets,project).length>0)))))&&(!agent||agentLocations(agent,deployments(s),targets,project).some(skillPresent)));

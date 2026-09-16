@@ -6,6 +6,35 @@ import App from './App';
 import type { Snapshot, UpdateCheck } from './types';
 const snapshot:Snapshot={dataScope:'fixture',prompts:[],skills:[],deployments:[],projects:[],settings:{scanRoots:[],executables:{codex:'',claude:'',dsh:''}},operations:[]};
 beforeEach(()=>{vi.restoreAllMocks();vi.spyOn(api,'getSnapshot').mockResolvedValue(structuredClone(snapshot));vi.spyOn(api,'isTauriRuntime').mockReturnValue(false);});
+it('keeps other Skills in the list when metadata.save returns only the saved record',async()=>{
+  const write=structuredClone(snapshot);
+  const skills=[{id:'s',name:'Writer',path:'C:/library/writer',source:{kind:'unknown' as const,locator:''},description:'',tags:[],favorite:false,createdAt:'',updatedAt:''},{id:'s2',name:'Second',path:'C:/library/second',source:{kind:'unknown' as const,locator:''},description:'',tags:[],favorite:false,createdAt:'',updatedAt:''}];
+  write.skills=structuredClone(skills);
+  // A slow reload keeps the UI on the save result, which is where a partial
+  // payload used to drop every other row.
+  let finishReload!:(value:Snapshot)=>void;
+  const slowReload=new Promise<Snapshot>(resolve=>{finishReload=resolve;});
+  vi.mocked(api.getSnapshot).mockResolvedValueOnce(structuredClone(write)).mockReturnValue(slowReload);
+  const dispatch=vi.spyOn(api,'dispatch').mockImplementation(async (...[method,args])=>{
+    if(method==='targets.list')return {targets:[]} as never;
+    if(method==='bookmarks.sync')return {items:[]} as never;
+    if(method==='skills.metadata.save'){
+      write.skills=write.skills.map(skill=>args.ids.includes(skill.id)?{...skill,...(args.favorite===undefined?{}:{favorite:args.favorite})}:skill);
+      return {skills:structuredClone(write.skills.filter(skill=>args.ids.includes(skill.id)))} as never;
+    }
+    return {} as never;
+  });
+  render(<App/>);
+  await userEvent.click(await screen.findByRole('button',{name:'Skill 内容与安装位置'}));
+  expect(await screen.findByRole('button',{name:'Second'})).toBeVisible();
+  await userEvent.click(screen.getByRole('button',{name:'收藏 Writer'}));
+  await waitFor(()=>expect(screen.getByRole('button',{name:'取消收藏 Writer'})).toBeEnabled());
+  expect(screen.getByRole('button',{name:'Second'})).toBeInTheDocument();
+  expect(dispatch).toHaveBeenCalledWith('skills.metadata.save',{ids:['s'],favorite:true});
+  await act(async()=>finishReload(structuredClone(write)));
+  expect(screen.getByRole('button',{name:'Second'})).toBeInTheDocument();
+  expect(screen.getByRole('button',{name:'取消收藏 Writer'})).toBeEnabled();
+});
 it('keeps an ongoing check across navigation and restores its persisted update button after reopening',async()=>{
   let resolve!:(value:UpdateCheck)=>void;
   const pending=new Promise<UpdateCheck>(r=>{resolve=r;});

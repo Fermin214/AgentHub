@@ -26,11 +26,14 @@ window.__TAURI_INTERNALS__={invoke:async(command,{method,args={}}={})=>{
   // `prompts.save` returns the saved Prompt, matching the production contract.
   if(method==='prompts.save'){const prompt=args.prompt.id?args.prompt:{...args.prompt,id:'prompt-preview'};snapshot.prompts=snapshot.prompts.some(p=>p.id===prompt.id)?snapshot.prompts.map(p=>p.id===prompt.id?prompt:p):[prompt,...snapshot.prompts];return clone(prompt);}
   if(method==='bookmarks.list'||method==='bookmarks.sync')return {items:[{id:'b1',name:'AgentHub',url:source.locator,notes:'可选中这段备注；点击卡片空白处不会打开网页。',status:'interested',archived:false}]};
+  // The viewer reads the library copy, so these mark which copy answered and give
+  // each copy different text; a request carrying an install id would read the install.
   if(method==='skills.files')return {files:Array.from({length:180},(_,i)=>({path:i?'references/example-'+i+'.md':'SKILL.md',size:18000,previewable:true}))};
-  if(method==='skills.read')return {content:'# '+(args.path||'SKILL.md')+'\n\n'+Array.from({length:500},(_,i)=>`${i+1}. 这是独立预览中的示例正文。聚焦正文区域后，可以使用 Page Down / Page Up。`).join('\n')};
+  if(method==='skills.read')return {content:'# '+(args.deploymentId?'安装副本正文':'库副本正文')+' '+(args.path||'SKILL.md')+'\n\n'+Array.from({length:500},(_,i)=>`${i+1}. 这是独立预览中的示例正文。聚焦正文区域后，可以使用 Page Down / Page Up。`).join('\n')};
   // Apply the patch by field so a tags-only save never rewrites `favorite`, and a
   // favorite-only save never rewrites `tags`, exactly like the production contract.
-  const applied=()=>{snapshot.skills=snapshot.skills.map(skill=>{if(!args.ids.includes(skill.id))return skill;const next={...skill};if(args.favorite!==undefined)next.favorite=!!args.favorite;if(args.tags!==undefined)next.tags=args.tags;return next;});return {skills:clone(snapshot.skills)};};
+  // Only the requested records come back, like the core `metadata` route.
+  const applied=()=>{snapshot.skills=snapshot.skills.map(skill=>{if(!args.ids.includes(skill.id))return skill;const next={...skill};if(args.favorite!==undefined)next.favorite=!!args.favorite;if(args.tags!==undefined)next.tags=args.tags;return next;});return {skills:clone(snapshot.skills.filter(skill=>args.ids.includes(skill.id)))};};
   if(method==='skills.metadata.save'){
     // `pending` parks the request. Every parked save gets its own release hook, so
     // a test can complete concurrent saves one at a time in any order.

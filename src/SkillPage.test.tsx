@@ -69,7 +69,14 @@ it('keeps other Skills and repository controls usable during a single check and 
   await screen.findByText('Second done');
   expect(dispatch.mock.calls.flatMap(([m,args])=>m==='skills.check'?[args.skillId]:[])).toEqual(['s','s2']);
 });
-const favoriteDispatch=(respond?:(skill:Skill,favorite:boolean)=>Partial<Skill>)=>{
+// Models the real transport: `skills.metadata.save` returns only the records it
+// touched, and a snapshot reload afterwards returns the whole committed store.
+// The mock also drives the snapshot prop like App does, because that reload result
+// is what confirms a committed favorite value.
+let snapshotState:Snapshot=snapshot;
+const favoriteDispatch=(skills:Skill[]=twoSkillList())=>{
+  snapshotState={...snapshot,skills:structuredClone(skills)};
+  const store=structuredClone(skills);
   const saves:Array<{ids:string[];favorite?:boolean;tags?:string[];resolve:(v:unknown)=>void;reject:(e:unknown)=>void}>=[];const calls:string[]=[];
   const dispatch=vi.spyOn(api,'dispatch').mockImplementation((...[method,args])=>{
     if(method==='targets.list')return Promise.resolve({targets} as never);
@@ -79,14 +86,27 @@ const favoriteDispatch=(respond?:(skill:Skill,favorite:boolean)=>Partial<Skill>)
     }
     return Promise.resolve({} as never);
   });
-  // Mirrors the authoritative `{skills}` transport result for every base Skill.
-  const settle=(index:number)=>{const save=saves[index];const skills=[snapshot.skills[0],{...snapshot.skills[0],id:'s2',name:'Second'}].map(skill=>save.ids.includes(skill.id)?{...skill,favorite:respond?!!respond(skill,!!save.favorite).favorite:!!save.favorite}:skill);save.resolve({skills});};
-  return {dispatch,saves,calls,settle};
+  // A reload reports the committed store, exactly like the real snapshot.
+  const refresh=vi.fn().mockImplementation(async()=>{snapshotState={...snapshotState,skills:structuredClone(store)};});
+  // Applies the patch to the store and resolves with only the requested records.
+  const settle=(index:number,respond?:(skill:Skill,favorite:boolean)=>Partial<Skill>)=>{
+    const save=saves[index];
+    store.forEach((skill,position)=>{if(!save.ids.includes(skill.id))return;const next={...skill};if(save.favorite!==undefined)next.favorite=save.favorite;if(save.tags!==undefined)next.tags=save.tags;store[position]=respond?{...next,...respond(skill,!!save.favorite)}:next;});
+    save.resolve({skills:structuredClone(store.filter(skill=>save.ids.includes(skill.id)))});
+  };
+  // Renders through a stateful snapshot prop so a completed reload confirms values.
+  type HarnessProps={notify:ComponentProps<typeof SkillPageView>['notify'];onProject:ComponentProps<typeof SkillPageView>['onProject'];refresh?:ComponentProps<typeof SkillPageView>['refresh'];onSkills?:(skills:Skill[])=>void;projectId?:string};
+  const Harness=({refresh:override,...rest}:HarnessProps)=>{
+    const activeRefresh=override??refresh;
+    const controller=useSkillUpdates(snapshotState,activeRefresh,rest.notify);
+    return <SkillPageView {...rest} snapshot={snapshotState} refresh={activeRefresh} controller={controller}/>;
+  };
+  return {dispatch,saves,calls,refresh,store,settle,Harness};
 };
-const twoSkills={...snapshot,skills:[snapshot.skills[0],{...snapshot.skills[0],id:'s2',name:'Second'}]};
+function twoSkillList():Skill[]{return [{...snapshot.skills[0]},{...snapshot.skills[0],id:'s2',name:'Second'}];}const twoSkills={...snapshot,skills:twoSkillList()};
 it('saves a favorite once per click and leaves every other control in its normal state',async()=>{
-  const {saves,calls,settle}=favoriteDispatch();
-  render(<SkillPage snapshot={twoSkills} refresh={vi.fn().mockResolvedValue(undefined)} notify={vi.fn()} onProject={vi.fn()}/>);
+  const {calls,settle,Harness}=favoriteDispatch();
+  render(<Harness notify={vi.fn()} onProject={vi.fn()}/>);
   await screen.findByRole('button',{name:'收藏 Writer'});
   const star=screen.getByRole('button',{name:'收藏 Writer'});
   star.focus();
@@ -110,30 +130,65 @@ it('saves a favorite once per click and leaves every other control in its normal
 });
 it('applies the authoritative save result and keeps it until the snapshot confirms it',async()=>{
   const onSkills=vi.fn();
-  const {settle}=favoriteDispatch();
-  render(<SkillPage snapshot={twoSkills} refresh={vi.fn().mockResolvedValue(undefined)} notify={vi.fn()} onProject={vi.fn()} onSkills={onSkills}/>);
+  const frozen=vi.fn().mockImplementation(async()=>{});
+  const {settle,Harness}=favoriteDispatch();
+  render(<Harness refresh={frozen} notify={vi.fn()} onProject={vi.fn()} onSkills={onSkills}/>);
   fireEvent.click(await screen.findByRole('button',{name:'收藏 Writer'}));
   await act(async()=>settle(0));
-  // B-3: the committed records are handed to the shell for an immediate patch.
-  expect(onSkills).toHaveBeenCalledWith([expect.objectContaining({id:'s',favorite:true}),expect.objectContaining({id:'s2'})]);
-  // Without a reporting shell the star still reflects the saved value, not the stale prop.
+  // B2-2: the shell receives a complete list, so replacing its skills keeps the
+  // unrelated row instead of dropping it.
+  expect(onSkills).toHaveBeenCalledWith([expect.objectContaining({id:'s',favorite:true}),expect.objectContaining({id:'s2',name:'Second'})]);
+  expect(frozen).toHaveBeenCalled();
+  // A stale reload must not drop the committed value back to the old record.
   expect(screen.getByRole('button',{name:'取消收藏 Writer'})).toBeEnabled();
 });
 it('does not re-save the old value when the snapshot reload is slow',async()=>{
   let finishRefresh!:(v:unknown)=>void;
-  const refresh=vi.fn().mockImplementation(()=>new Promise(resolve=>{finishRefresh=resolve;}));
-  const onSkills=vi.fn();
-  const {settle,saves}=favoriteDispatch((_skill,favorite)=>({favorite}));
-  const view=render(<SkillPage snapshot={twoSkills} refresh={refresh} notify={vi.fn()} onProject={vi.fn()} onSkills={onSkills}/>);
+  const {settle,saves,Harness}=favoriteDispatch();
+  const slowRefresh=vi.fn().mockImplementation(()=>new Promise(resolve=>{finishRefresh=resolve;}));
+  render(<Harness refresh={slowRefresh} notify={vi.fn()} onProject={vi.fn()}/>);
   fireEvent.click(await screen.findByRole('button',{name:'收藏 Writer'}));
   await act(async()=>settle(0));
-  const patched=onSkills.mock.calls[0][0] as Skill[];
-  view.rerender(<SkillPage snapshot={{...twoSkills,skills:patched}} refresh={refresh} notify={vi.fn()} onProject={vi.fn()} onSkills={onSkills}/>);
-  // The reload is still pending; clicking again must not queue a second save.
+  // While the reload is pending the committed value is shown, so a second click
+  // acts on the new state instead of repeating a save of the stale record.
   fireEvent.click(screen.getByRole('button',{name:'取消收藏 Writer'}));
-  expect(saves).toHaveLength(1);
-  await act(async()=>finishRefresh({}));
-  expect(screen.getByRole('button',{name:'取消收藏 Writer'})).toBeEnabled();
+  expect(saves).toHaveLength(2);
+  expect(saves[1].favorite).toBe(false);
+  await act(async()=>settle(1));
+  await act(async()=>{finishRefresh({});});
+  expect(screen.getByRole('button',{name:'收藏 Writer'})).toBeEnabled();
+});
+it('round-trips favorite, unfavorite and favorite again after confirmation',async()=>{
+  const {saves,store,settle,Harness}=favoriteDispatch();
+  render(<Harness notify={vi.fn()} onProject={vi.fn()}/>);
+  fireEvent.click(await screen.findByRole('button',{name:'收藏 Writer'}));
+  await act(async()=>settle(0));
+  const undo=screen.getByRole('button',{name:'取消收藏 Writer'});
+  expect(undo).toBeEnabled();
+  fireEvent.click(undo);
+  await act(async()=>settle(1));
+  expect(screen.getByRole('button',{name:'收藏 Writer'})).toBeEnabled();
+  fireEvent.click(screen.getByRole('button',{name:'收藏 Writer'}));
+  await act(async()=>settle(2));
+  // Every step after a confirmed save must still be able to act on the new state.
+  expect(saves.map(save=>save.favorite)).toEqual([true,false,true]);
+  expect(store.find(skill=>skill.id==='s')?.favorite).toBe(true);
+});
+it('allows favoriting after a tags save and its snapshot confirmation completed',async()=>{
+  const {saves,settle,Harness}=favoriteDispatch();
+  render(<Harness notify={vi.fn()} onProject={vi.fn()}/>);
+  const writer=document.querySelectorAll<HTMLElement>('.library-row')[0];
+  expect(writer).toBeDefined();
+  fireEvent.click(within(writer).getByRole('button',{name:'标签'}));
+  fireEvent.click(screen.getByRole('button',{name:'保存标签'}));
+  await act(async()=>settle(0));
+  expect(saves[0].tags).toEqual([]);
+  expect(saves[0].favorite).toBeUndefined();
+  fireEvent.click(screen.getByRole('button',{name:'收藏 Writer'}));
+  await act(async()=>settle(1));
+  // A tags save must not leave a favorite record behind that blocks the star.
+  expect(saves.filter(save=>save.favorite!==undefined)).toHaveLength(1);
+  expect(saves[1]).toMatchObject({ids:['s'],favorite:true});
 });
 it('reports a failed snapshot reload as saved-but-stale instead of unsaved',async()=>{
   const notify=vi.fn();
