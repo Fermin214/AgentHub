@@ -187,6 +187,10 @@ const dictionary: Dict = {
   'skills.empty.body': { zh: '可以从 Skill 仓库、ZIP 或本机目录添加，也可以导入本机已有的 Skill。', en: 'Add one from a repository, a ZIP, or a local folder — or import Skills already on this machine.' },
   'skills.favoriteLabel': { zh: '收藏 {name}', en: 'Add {name} to favorites' },
   'skills.unfavoriteLabel': { zh: '取消收藏 {name}', en: 'Remove {name} from favorites' },
+  // Shown while this Skill's favorite change is still saving; other rows stay untouched.
+  'skills.favoritePending': { zh: '正在保存 {name} 的收藏…', en: 'Saving {name} favorite…' },
+  // The save committed but the list could not be reloaded; never claim it failed.
+  'skills.favoriteSavedRefreshFailed': { zh: '收藏已保存，但刷新 Skill 列表失败。显示可能不是最新。', en: 'The favorite was saved, but reloading the Skill list failed. The list may be out of date.' },
   'skills.tagsDialog': { zh: '标签 · {name}', en: 'Tags · {name}' },
   'skills.saveTags': { zh: '保存标签', en: 'Save tags' },
   'skills.unbind.title': { zh: '删除来源 · {name}', en: 'Remove source · {name}' },
@@ -287,10 +291,8 @@ const dictionary: Dict = {
   'import.scanDetails': { zh: '查找详情', en: 'Scan details' },
   'import.failed': { zh: '导入失败', en: 'Import failed' },
 
-  // Skill contents reader
+  // Skill contents reader (always the Skill library copy)
   'contents.title': { zh: '文件与说明', en: 'Files' },
-  'contents.location': { zh: '阅读位置', en: 'Read from' },
-  'contents.library': { zh: 'Skill 库', en: 'Skill library' },
   'contents.files': { zh: 'Skill 文件', en: 'Skill files' },
   'contents.reading': { zh: '正在读取文件…', en: 'Loading file…' },
 

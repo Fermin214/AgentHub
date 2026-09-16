@@ -125,19 +125,22 @@ h1, h2, h3 { font-family: var(--display); font-weight: 600; color: var(--ink-str
 .prompt-sort { border: 0; background: transparent; color: var(--ink-soft); font: inherit; font-size: 12px; cursor: pointer; padding: 4px 2px; }
 
 .prompt-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
-.prompt-card { min-width: 0; display: flex; flex-direction: column; background: var(--paper); border: 1px solid var(--line); border-radius: var(--r-md); overflow: hidden; transition: border-color .15s; }
+.prompt-card { min-width: 0; height: 220px; display: flex; flex-direction: column; background: var(--paper); border: 1px solid var(--line); border-radius: var(--r-md); overflow: hidden; transition: border-color .15s; }
 .prompt-card:hover { border-color: var(--line-strong); }
-.prompt-card__top { display: flex; justify-content: space-between; align-items: center; padding: 10px 12px 0; }
-.prompt-card__actions { display: flex; align-items: center; gap: 2px; }
-.prompt-card__copy { display: block; width: 100%; flex: 1; text-align: left; border: 0; background: transparent; padding: 4px 15px 8px; }
-.prompt-card__copy h3 { margin: 0 0 9px; font-size: 15.5px; letter-spacing: -.008em; }
+/* Reserve two title lines; full titles remain available in the preview. */
+.prompt-card__head { display: flex; flex: 0 0 56px; align-items: flex-start; gap: 10px; padding: 10px 12px 0; }
+.prompt-card__title { flex: 1 1 auto; min-width: 0; margin: 0; text-align: left; border: 0; background: transparent; padding: 0; }
+.prompt-card__actions { flex: 0 0 auto; display: flex; align-items: center; gap: 2px; }
+.prompt-card__copy { display: block; width: 100%; min-height: 0; flex: 1; text-align: left; border: 0; background: transparent; padding: 4px 15px 8px; overflow: hidden; }
+.prompt-card__title h3 { margin: 0; font-size: 15.5px; line-height: 1.4; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .prompt-card__copy p { height: 63px; overflow: hidden; margin: 0; color: var(--ink-soft); font-size: 12.5px; line-height: 1.68; white-space: pre-wrap; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; }
 /* Always visible: a copy affordance revealed only on hover is not discoverable. */
-.prompt-card__bottom { min-height: 38px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 15px 12px; }
+.prompt-card__bottom { flex: 0 0 38px; min-height: 38px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 15px 12px; }
 .prompt-card__bottom time { flex: 0 0 auto; color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
 .tag-list { min-width: 0; display: flex; flex-wrap: wrap; gap: 8px; }
 .tag-list span { color: var(--ink-soft); font-size: 11px; }
-.prompt-card .tag-list span { max-width: 100%; padding: 3px 8px; border-radius: 999px; background: var(--canvas); overflow-wrap: anywhere; line-height: 1.5; }
+.prompt-card .tag-list { flex-wrap: nowrap; overflow: hidden; }
+.prompt-card .tag-list span { flex-shrink: 0; max-width: 100%; padding: 3px 8px; border-radius: 999px; background: var(--canvas); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.5; }
 .badge { min-height: 20px; display: inline-flex; align-items: center; padding: 0 7px; border-radius: var(--r-sm); font-size: 11px; font-weight: 600; white-space: nowrap; }
 .badge--neutral { color: var(--ink-soft); background: var(--canvas); }
 .badge--blue { color: var(--note); background: var(--note-bg); }
@@ -215,8 +218,10 @@ h1, h2, h3 { font-family: var(--display); font-weight: 600; color: var(--ink-str
 .modal--wide { width: min(800px, 100%); }
 @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
 @keyframes rise-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
-.modal__header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 22px 24px 16px; border-bottom: 1px solid var(--line); }
-.modal__header h2 { margin: 0; font-size: 18px; letter-spacing: -.012em; }
+.modal__header { display: flex; flex-shrink: 0; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 22px 24px 16px; border-bottom: 1px solid var(--line); }
+.modal__header > div { min-width: 0; max-height: 30vh; overflow-y: auto; }
+.modal__header > .icon-button { flex-shrink: 0; }
+.modal__header h2 { margin: 0; font-size: 18px; letter-spacing: -.012em; overflow-wrap: anywhere; }
 .modal__title-row { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px 16px; min-width: 0; }
 .modal__title-row h2 { overflow-wrap: anywhere; }
 .modal__title-row a { font-size: 13px; font-weight: 400; color: var(--muted); white-space: nowrap; text-decoration: none; }

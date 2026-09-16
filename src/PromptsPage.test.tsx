@@ -8,9 +8,18 @@ const prompt:Prompt={id:'one',title:'A first',body:'Original body',tags:[],categ
 beforeEach(()=>vi.restoreAllMocks());
 it('sorts results by actual updated date or title independently of favorites',async()=>{
  render(<PromptsPage prompts={[{...prompt,favorite:true},{...prompt,id:'two',title:'Z latest',updatedAt:'2026-09-10T00:00:00Z'}]} notify={vi.fn()} onSnapshot={vi.fn()}/>);
- expect(screen.getAllByRole('button',{name:/查看 /})[0]).toHaveTextContent('Z latest');
+ expect(screen.getAllByRole('heading',{level:3})[0]).toHaveTextContent('Z latest');
  await userEvent.selectOptions(screen.getByLabelText('Prompt 排序'),'title');
- expect(screen.getAllByRole('button',{name:/查看 /})[0]).toHaveTextContent('A first');
+ expect(screen.getAllByRole('heading',{level:3})[0]).toHaveTextContent('A first');
+});
+
+it('keeps a long, unbreakable card title intact for preview and editing',async()=>{
+ const title='AntiDisestablishmentarianismPneumonoultramicroscopicsilicovolcanoconiosisFloccinaucinihilipilification';
+ render(<PromptsPage prompts={[{...prompt,title}]} notify={vi.fn()} onSnapshot={vi.fn()}/>);
+ const card=screen.getByRole('article');
+ expect(card.querySelector('h3')).toHaveTextContent(title);
+ await userEvent.click(screen.getByRole('button',{name:`查看 ${title}`}));
+ expect(screen.getByRole('dialog')).toHaveTextContent(title);
 });
 
 it('previews full multiline text without copying and preserves purpose when editing',async()=>{
