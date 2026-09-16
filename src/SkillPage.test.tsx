@@ -1,5 +1,5 @@
 import { beforeEach, expect, it, vi } from 'vitest';
-import { act, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import * as api from './api';
 import { SkillPage as SkillPageView } from './SkillPage';
@@ -69,6 +69,99 @@ it('keeps other Skills and repository controls usable during a single check and 
   await screen.findByText('Second done');
   expect(dispatch.mock.calls.flatMap(([m,args])=>m==='skills.check'?[args.skillId]:[])).toEqual(['s','s2']);
 });
+const favoriteDispatch=()=>{
+  const saves:Array<{ids:string[];favorite:boolean;resolve:(v:unknown)=>void;reject:(e:unknown)=>void}>=[];const calls:string[]=[];
+  const dispatch=vi.spyOn(api,'dispatch').mockImplementation((...[method,args])=>{
+    if(method==='targets.list')return Promise.resolve({targets} as never);
+    if(method==='skills.metadata.save'){
+      let resolve!:(v:unknown)=>void,reject!:(e:unknown)=>void;const pending=new Promise((ok,fail)=>{resolve=ok;reject=fail;});
+      calls.push(...args.ids);saves.push({ids:args.ids,favorite:!!args.favorite,resolve,reject});return pending as never;
+    }
+    return Promise.resolve({} as never);
+  });
+  return {dispatch,saves,calls};
+};
+const twoSkills={...snapshot,skills:[snapshot.skills[0],{...snapshot.skills[0],id:'s2',name:'Second'}]};
+it('saves a favorite once per click and leaves other Skills and Agent icons untouched',async()=>{
+  const {saves,calls}=favoriteDispatch();
+  render(<SkillPage snapshot={twoSkills} refresh={vi.fn().mockResolvedValue(undefined)} notify={vi.fn()} onProject={vi.fn()}/>);
+  await screen.findByRole('button',{name:'收藏 Writer'});
+  const star=screen.getByRole('button',{name:'收藏 Writer'});
+  star.focus();fireEvent.click(star);fireEvent.click(star);
+  expect(star).toBeDisabled();expect(star).toHaveFocus();expect(star).toHaveAttribute('aria-label','正在保存 Writer 的收藏…');
+  expect(calls).toEqual(['s']);
+  // Measured behavior: the shared `busy` flag still disables the row controls of
+  // every Skill while one favorite request is in flight. Only the favorite path and
+  // the Agent icons are isolated here; the rest is reported as an out-of-scope finding.
+  expect(screen.getAllByRole('button',{name:'从库删除'}).some(button=>button.hasAttribute('disabled'))).toBe(true);
+  expect(screen.getByRole('button',{name:'收藏 Second'})).toBeEnabled();
+  const agentButtons=document.querySelectorAll('.skill-sync__agent');
+  expect(agentButtons.length).toBeGreaterThan(0);
+  expect([...agentButtons].every(button=>!button.hasAttribute('disabled'))).toBe(true);
+  expect(screen.getByRole('button',{name:'Skill 仓库'})).toHaveAttribute('disabled');
+  await act(async()=>saves[0].resolve({}));
+  expect(calls).toEqual(['s']);
+  expect(screen.getByRole('button',{name:'收藏 Writer'})).toBeEnabled();
+});
+it('keeps concurrent favorite saves independent when they finish out of order',async()=>{
+  const {saves}=favoriteDispatch();
+  render(<SkillPage snapshot={twoSkills} refresh={vi.fn().mockResolvedValue(undefined)} notify={vi.fn()} onProject={vi.fn()}/>);
+  // Only Writer is clicked while its request is still pending; Second is started
+  // from the same unpainted state and both requests stay in flight together.
+  await act(async()=>{fireEvent.click(screen.getByRole('button',{name:'收藏 Writer'}));fireEvent.click(screen.getByRole('button',{name:'收藏 Second'}));});
+  expect(saves).toHaveLength(2);
+  expect(saves.map(save=>save.ids)).toEqual([['s'],['s2']]);
+  expect(screen.getByRole('button',{name:'正在保存 Writer 的收藏…'})).toBeDisabled();
+  expect(screen.getByRole('button',{name:'正在保存 Second 的收藏…'})).toBeDisabled();
+  await act(async()=>saves[1].resolve({}));
+  expect(screen.getByRole('button',{name:'收藏 Second'})).toBeEnabled();
+  expect(screen.getByRole('button',{name:'正在保存 Writer 的收藏…'})).toBeDisabled();
+  await act(async()=>saves[0].resolve({}));
+  expect(screen.getByRole('button',{name:'收藏 Writer'})).toBeEnabled();
+});
+it('recovers a rejected favorite save without corrupting the visible state',async()=>{
+  const {saves,calls}=favoriteDispatch();
+  render(<SkillPage snapshot={snapshot} refresh={vi.fn().mockResolvedValue(undefined)} notify={vi.fn()} onProject={vi.fn()}/>);
+  fireEvent.click(await screen.findByRole('button',{name:'收藏 Writer'}));
+  await act(async()=>saves[0].reject(new Error('磁盘不可写')));
+  expect(screen.getByRole('alert')).toHaveTextContent('磁盘不可写');
+  expect(screen.getByRole('button',{name:'收藏 Writer'})).toBeEnabled();
+  fireEvent.click(screen.getByRole('button',{name:'收藏 Writer'}));
+  expect(calls).toEqual(['s','s']);
+  expect(saves[1]).toMatchObject({ids:['s'],favorite:true});
+  await act(async()=>saves[1].resolve({}));
+  expect(screen.getByRole('button',{name:'收藏 Writer'})).toBeEnabled();
+});
+it('does not report an unsaved favorite when only the snapshot reload fails',async()=>{
+  const {saves}=favoriteDispatch();
+  const spy=vi.spyOn(console,'error').mockImplementation(()=>{});
+  render(<SkillPage snapshot={snapshot} refresh={vi.fn().mockRejectedValue(new Error('快照读取失败'))} notify={vi.fn()} onProject={vi.fn()}/>);
+  fireEvent.click(await screen.findByRole('button',{name:'收藏 Writer'}));
+  await act(async()=>saves[0].resolve({}));
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  expect(console.error).toHaveBeenCalled();
+  expect(screen.getByRole('button',{name:'收藏 Writer'})).toBeEnabled();
+  spy.mockRestore();
+});
+it('still saves a favorite while another Skill check is in flight',async()=>{
+  let finishCheck!:(v:unknown)=>void;
+  const check=new Promise(resolve=>{finishCheck=resolve;});
+  const saved:Array<{ids:string[];favorite:boolean}>=[];
+  vi.spyOn(api,'dispatch').mockImplementation((...[method,args])=>{
+    if(method==='targets.list')return Promise.resolve({targets} as never);
+    if(method==='skills.check')return check as never;
+    if(method==='skills.metadata.save'){saved.push({ids:args.ids,favorite:!!args.favorite});return Promise.resolve({skills:[]} as never);}
+    return Promise.resolve({} as never);
+  });
+  render(<SkillPage snapshot={snapshot} refresh={vi.fn().mockResolvedValue(undefined)} notify={vi.fn()} onProject={vi.fn()}/>);
+  await screen.findByRole('button',{name:'收藏 Writer'});
+  await userEvent.click(screen.getByRole('button',{name:'检查更新'}));
+  expect(screen.getByRole('button',{name:'检查中…'})).toBeDisabled();
+  await userEvent.click(screen.getByRole('button',{name:'收藏 Writer'}));
+  expect(saved).toEqual([{ids:['s'],favorite:true}]);
+  await act(async()=>finishCheck({skillId:'s',message:'已是最新'}));
+});
+
 it('does not install until the explicit reviewed plan is confirmed',async()=>{
   const dispatch=vi.spyOn(api,'dispatch').mockImplementation(async (...[method]) =>{if(method==='targets.list')return {targets} as never;if(method==='maintenance.get')return {} as never;if(method==='skills.install.preview')return plan as never;return {status:'succeeded',summary:'已安装'} as never;});
   const refresh=vi.fn().mockResolvedValue(undefined);render(<SkillPage snapshot={snapshot} refresh={refresh} notify={vi.fn()} onProject={vi.fn()}/>);

@@ -30,6 +30,21 @@ it('translates core messages and falls back to the original text', () => {
   expect(makeTranslate('zh').backend('Skill 不存在')).toBe('Skill 不存在');
 });
 
+it('keeps the Skill viewer library-only in both languages', () => {
+  const en = makeTranslate('en');
+  const zh = makeTranslate('zh');
+  // A missing key resolves to itself, so the removed copy cannot silently come back.
+  expect(en('contents.location')).toBe('contents.location');
+  expect(en('contents.library')).toBe('contents.library');
+  expect(zh('contents.location')).toBe('contents.location');
+  expect(en('contents.files')).toBe('Skill files');
+  // Favorite feedback names the Skill that is still saving.
+  expect(zh('skills.favoritePending', { name: 'Writer' })).toBe('正在保存 Writer 的收藏…');
+  expect(en('skills.favoritePending', { name: 'Writer' })).toBe('Saving Writer favorite…');
+  expect(zh('skills.favoriteLabel', { name: 'Writer' })).toBe('收藏 Writer');
+  expect(en('skills.unfavoriteLabel', { name: 'Writer' })).toBe('Remove Writer from favorites');
+});
+
 it('uses stable error codes when diagnostics change and preserves affected paths', () => {
   const en = makeTranslate('en');
   for (const detail of ['旧诊断', '完全不同的新诊断']) {

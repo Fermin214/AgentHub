@@ -24,6 +24,14 @@ window.__TAURI_INTERNALS__={invoke:async(command,{method,args={}}={})=>{
   if(method==='bookmarks.list'||method==='bookmarks.sync')return {items:[{id:'b1',name:'AgentHub',url:source.locator,notes:'可选中这段备注；点击卡片空白处不会打开网页。',status:'interested',archived:false}]};
   if(method==='skills.files')return {files:Array.from({length:180},(_,i)=>({path:i?'references/example-'+i+'.md':'SKILL.md',size:18000,previewable:true}))};
   if(method==='skills.read')return {content:'# '+(args.path||'SKILL.md')+'\n\n'+Array.from({length:500},(_,i)=>`${i+1}. 这是独立预览中的示例正文。聚焦正文区域后，可以使用 Page Down / Page Up。`).join('\n')};
+  // A favorite save resolves immediately unless a test marks the request
+  // `pending`, which parks it until the test calls the exposed release hook.
+  if(method==='skills.metadata.save'){
+    if(window.favoriteRequest==='pending')return new Promise(resolve=>{window.releaseFavorite=resolve;});
+    if(window.favoriteRequest==='reject')throw {code:'UNKNOWN',detail:'磁盘不可写'};
+    snapshot.skills=snapshot.skills.map(skill=>args.ids.includes(skill.id)?{...skill,favorite:!!args.favorite}:skill);
+    return {skills:clone(snapshot.skills)};
+  }
   if(method==='sources.begin'){if(request&&!request.done)throw {code:'SOURCE_BUSY',detail:'A source inspection is still cleaning up.'};request={id:crypto.randomUUID(),started:Date.now(),cancelled:false,done:false,scenario:window.fixtureScenario || 'slow'};return {requestId:request.id};}
   if(method==='sources.cancel'){if(request?.id===args.requestId)request.cancelled=true;return {};}
   if(method==='sources.status'){const elapsedSeconds=Math.floor((Date.now()-request.started)/1000);return {stage:request.cancelled?'cancelling':elapsedSeconds<4?'cloning':elapsedSeconds<8?'scanning':'fingerprinting',elapsedSeconds,attempt:1};}

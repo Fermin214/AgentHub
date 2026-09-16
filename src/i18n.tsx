@@ -187,6 +187,8 @@ const dictionary: Dict = {
   'skills.empty.body': { zh: '可以从 Skill 仓库、ZIP 或本机目录添加，也可以导入本机已有的 Skill。', en: 'Add one from a repository, a ZIP, or a local folder — or import Skills already on this machine.' },
   'skills.favoriteLabel': { zh: '收藏 {name}', en: 'Add {name} to favorites' },
   'skills.unfavoriteLabel': { zh: '取消收藏 {name}', en: 'Remove {name} from favorites' },
+  // Shown while this Skill's favorite change is still saving; other rows stay untouched.
+  'skills.favoritePending': { zh: '正在保存 {name} 的收藏…', en: 'Saving {name} favorite…' },
   'skills.tagsDialog': { zh: '标签 · {name}', en: 'Tags · {name}' },
   'skills.saveTags': { zh: '保存标签', en: 'Save tags' },
   'skills.unbind.title': { zh: '删除来源 · {name}', en: 'Remove source · {name}' },
