@@ -61,6 +61,39 @@ test('the detail viewer shows library files with no read-location entry', async 
   await dialog.screenshot({ path: 'output/ui-skill-interactions/skill-detail-library-only.png' });
 });
 
+test('the English interface reads the library copy while an installed copy exists', async ({ page }) => {
+  // The Skill has a real Agent install at a different path, so the request must
+  // still target the library; the fixture answers any path with SKILL.md content.
+  const calls: string[] = [];
+  page.on('console', message => { if (message.text().startsWith('ipc:')) calls.push(message.text()); });
+  await page.evaluate(() => {
+    const internals = (window as unknown as { __TAURI_INTERNALS__: { invoke: (c: string, a: unknown) => Promise<unknown> } }).__TAURI_INTERNALS__;
+    const original = internals.invoke;
+    internals.invoke = async (command, args) => {
+      const method = (args as { method?: string })?.method;
+      const payload = (args as { args?: { path?: string } })?.args;
+      if (method === 'skills.read' || method === 'skills.files') console.log(`ipc:${method}:${payload?.path ?? ''}`);
+      return await original(command, args);
+    };
+  });
+  await page.getByRole('button', { name: '设置 Agent 与本地偏好', exact: true }).click();
+  await page.getByRole('tab', { name: '关于', exact: true }).click();
+  await page.getByRole('combobox', { name: '界面语言', exact: true }).selectOption('en');
+  await page.getByRole('button', { name: 'Skills Content and install locations', exact: true }).click();
+  await page.getByRole('button', { name: '写作助手 · 长文示例', exact: true }).click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog.getByRole('heading', { name: 'Files', exact: true })).toBeVisible();
+  await expect(dialog.getByRole('navigation', { name: 'Skill files', exact: true })).toBeVisible();
+  await expect(dialog.getByText('Read from', { exact: true })).toHaveCount(0);
+  await expect(dialog.locator('select')).toHaveCount(0);
+  const content = dialog.getByRole('region', { name: 'File contents', exact: true });
+  await expect(content.getByText('这是独立预览中的示例正文', { exact: false }).first()).toBeVisible();
+  // No request may carry an install location, so the viewer cannot be reading the install.
+  expect(calls.some(call => call.startsWith('ipc:skills.read:'))).toBe(true);
+  expect(calls.join(' ')).not.toContain('agents/codex');
+  await dialog.screenshot({ path: 'output/ui-skill-interactions/skill-detail-english-library-only.png' });
+});
+
 test('a saved Prompt stays in the list under the prompts.save contract', async ({ page }) => {
   await page.getByRole('button', { name: 'Prompts 收藏与复用', exact: true }).click();
   await page.getByRole('button', { name: '添加', exact: true }).click();
