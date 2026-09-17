@@ -30,6 +30,9 @@ function Run-VmScenario([string]$Id,[string]$Script,$Arguments,[switch]$Expected
         if (Test-Path -LiteralPath $source) { Copy-Item -LiteralPath $source -Destination "$evidence/$Id.json" }
         if (Test-Path -LiteralPath $caseRoot) {
             foreach($file in Get-ChildItem -LiteralPath $caseRoot -Filter '*.png' -File) { Copy-Item -LiteralPath $file.FullName -Destination "$evidence/screenshots/$Id-$($file.Name)" }
+            if(Test-Path "$caseRoot/screenshots"){Copy-Item -LiteralPath "$caseRoot/screenshots" -Destination "$evidence/screenshots/$Id" -Recurse}
+            if(Test-Path "$caseRoot/logs"){Copy-Item -LiteralPath "$caseRoot/logs" -Destination "$evidence/logs/$Id-details" -Recurse}
+            foreach($file in Get-ChildItem -LiteralPath $caseRoot -Filter '*.json' -File){Copy-Item -LiteralPath $file.FullName -Destination "$evidence/$Id-$($file.Name)"}
         }
     }
     # Do not enter the next system-changing case if cleanup failed.
@@ -56,6 +59,17 @@ try {
         Run-VmScenario 'upgrade' "$PSScriptRoot/../verify-windows-vm.ps1" @('-Installer',"$runRoot/base/AgentHub_$($base.version)_x64-setup.exe",'-Cli',"$runRoot/helpers/base-cli.exe",'-UpgradeInstaller',$installer,'-UpgradeCli',$cli)
     } else { $result.scenarios+=New-AcceptanceResult 'upgrade' 'environment-blocked' 'Supply published base candidate and matching CLI with BaseVersion' $start }
     Run-VmScenario 'installer-languages' "$PSScriptRoot/languages.ps1" @('-Installer',$installer)
+    if($job.packagedUi -eq $true){
+        if((Get-FileHash "$runRoot/helpers/node.exe").Hash -ne $job.nodeSha256){throw 'Node helper hash mismatch'}
+        $manifest=[IO.File]::ReadAllText("$runRoot/candidate/build-manifest.json")|ConvertFrom-Json
+        Run-VmScenario 'native-maintenance' "$PSScriptRoot/packaged.ps1" @('-PortableZip',"$runRoot/candidate/AgentHub-$($candidate.version)-windows-x64.zip",'-Cli',$cli,'-Node',"$runRoot/helpers/node.exe",'-DesktopSha256',$manifest.desktop.sha256)
+    }
+    if($job.allowRuntimeIsolation -eq $true){
+        Run-VmScenario 'webview-download-failure-recovery' "$PSScriptRoot/runtime.ps1" @('-Installer',$installer,'-PortableZip',"$runRoot/candidate/AgentHub-$($candidate.version)-windows-x64.zip",'-AuthorizedRuntimeIsolation')
+        $runtimeReport=[IO.File]::ReadAllText("$evidence/webview-download-failure-recovery.json")|ConvertFrom-Json
+        $missingStatus=if($runtimeReport.missingPassed -and $runtimeReport.cleanup.status -eq 'passed'){'passed'}else{'failed'}
+        $result.scenarios+=New-AcceptanceResult 'webview-missing' $missingStatus 'Operator-authorized runtime isolation; see missing-runtime and download UI evidence' $start @('vm/webview-download-failure-recovery.json')
+    }
 } catch { $result.scenarios+=New-AcceptanceResult 'vm-worker' 'failed' ($_.ToString()+' '+$_.ScriptStackTrace) $start }
 finally {
     $errors=@()

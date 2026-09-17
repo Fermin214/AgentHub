@@ -1,4 +1,4 @@
-param([string]$Cli,[string]$CaseRoot)
+﻿param([string]$Cli,[string]$CaseRoot)
 $ErrorActionPreference='Stop'
 [Console]::OutputEncoding=[Text.UTF8Encoding]::new($false)
 $OutputEncoding=[Console]::OutputEncoding

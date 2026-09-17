@@ -1,5 +1,5 @@
 // Only connects to the isolated, PID-verified endpoint launched by desktop.ps1.
-import { chromium } from '@playwright/test';
+import { chromium } from 'playwright-core';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import assert from 'node:assert/strict';

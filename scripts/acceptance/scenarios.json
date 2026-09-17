@@ -19,6 +19,7 @@
   {"id":"webview-download-failure-recovery","profile":"Release","coverage":"Offline failure then online recovery on a dedicated runtime-free VM snapshot"},
   {"id":"browser-download-startup","profile":"Release","coverage":"Real Edge download, hash and Mark of the Web, publisher prompts and actual startup"},
   {"id":"native-ui-details","profile":"Release","coverage":"Packaged WebView2 minimum window, keyboard scroll, source cancellation/retry, links and click targets"},
+  {"id":"native-maintenance","profile":"Release","coverage":"Exact packaged WebView2 bilingual Prompt/Skill layout, real favorite persistence and explicitly injected IPC failures; additional manual details remain separate"},
   {"id":"cleanup","profile":"Release","coverage":"Owned processes, scheduled task, installation, registry, proxy and WebView2 restoration"},
   {"id":"candidate-unchanged","profile":"Release","coverage":"Candidate hashes after all tests"}
 ]

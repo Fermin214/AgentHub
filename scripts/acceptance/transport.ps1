@@ -17,11 +17,21 @@ function Invoke-AcceptanceVm($Config, [string]$Evidence, [string]$RunId, [string
     $stage = Join-Path $Evidence 'staging'
     New-Item -ItemType Directory -Path "$stage/scripts/acceptance","$stage/candidate","$stage/helpers" | Out-Null
     foreach ($name in @('verify-windows-vm.ps1','verify-vm-portable.ps1')) { Copy-Item -LiteralPath (Join-Path $PSScriptRoot "../$name") -Destination "$stage/scripts/$name" }
-    foreach ($name in @('common.ps1','vm-safety.ps1','worker.ps1','languages.ps1')) { Copy-Item -LiteralPath (Join-Path $PSScriptRoot $name) -Destination "$stage/scripts/acceptance/$name" }
+    foreach ($name in @('common.ps1','vm-safety.ps1','worker.ps1','languages.ps1','runtime.ps1')) { Copy-Item -LiteralPath (Join-Path $PSScriptRoot $name) -Destination "$stage/scripts/acceptance/$name" }
     $proof = Get-CandidateProof $Candidate
     foreach ($file in $proof.files) { Copy-Item -LiteralPath (Join-Path $Candidate $file.name) -Destination "$stage/candidate" }
     Copy-Item -LiteralPath ([IO.Path]::GetFullPath($Config.cliPath)) -Destination "$stage/helpers/candidate-cli.exe"
     $job = @{runId=$RunId; taskName="AgentHub-Acceptance-$RunId"; candidate=$proof; cliSha256=(Get-FileHash -LiteralPath "$stage/helpers/candidate-cli.exe").Hash; baseVersion=$BaseVersion; hasBase=$false}
+    $job.allowRuntimeIsolation=($Config.allowRuntimeIsolation -is [bool] -and $Config.allowRuntimeIsolation)
+    $job.packagedUi=($Config.packagedUi -is [bool] -and $Config.packagedUi)
+    if($job.packagedUi){
+        foreach($name in @('packaged.ps1','desktop-fixture.ps1','desktop-check.mjs','desktop-layout.mjs','desktop-favorites.mjs','desktop-faults.mjs')){Copy-Item -LiteralPath (Join-Path $PSScriptRoot $name) -Destination "$stage/scripts/acceptance/$name"}
+        New-Item -ItemType Directory -Path "$stage/scripts/acceptance/node_modules"|Out-Null
+        $node=(Get-Command node -ErrorAction Stop).Source
+        Copy-Item -LiteralPath $node -Destination "$stage/helpers/node.exe"
+        Copy-Item -LiteralPath (Join-Path $PSScriptRoot '../../node_modules/playwright-core') -Destination "$stage/scripts/acceptance/node_modules/playwright-core" -Recurse
+        $job.nodeSha256=(Get-FileHash "$stage/helpers/node.exe").Hash
+    }
     if ($BaseVersion -and $Config.baseCandidatePath -and $Config.baseCliPath) {
         $base = Get-CandidateProof ([IO.Path]::GetFullPath($Config.baseCandidatePath))
         if ($base.version -ne $BaseVersion -or [version]$BaseVersion -ge [version]$proof.version) { throw 'Base must match BaseVersion and precede candidate' }
