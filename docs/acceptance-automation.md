@@ -133,7 +133,7 @@ For regression efficacy, archive an identified defective revision into a new ign
 
 ## Fresh-checkout reproduction
 
-Create a clean detached worktree at the candidate commit, independently run `npm ci`, then the three commands below. Do not copy `output`, `node_modules` or old binaries. A configured toolchain installation may be shared; the checkout's build output remains local.
+Create a clean detached worktree at the candidate commit, independently run `npm ci`, then the commands below. Do not copy `output`, `node_modules` or old binaries. A configured toolchain installation may be shared; the checkout's build output remains local.
 
 ```powershell
 pwsh -NoProfile -File scripts/acceptance/self-test.ps1

@@ -34,7 +34,8 @@ $titles = @(
   ('UnbrokenLongTitleForWrapping' * 12)
 )
 foreach ($title in $titles) {
-  Call-Core 'prompts.save' @{prompt=@{title=$title;body="自动验收正文。`nSecond line for preview and keyboard tests.";purpose='自动验收 / Native acceptance';category='Pilot';tags=@('test');favorite=$false}} | Out-Null
+  $saved=Call-Core 'prompts.save' @{prompt=@{title=$title;body="自动验收正文。`nSecond line for preview and keyboard tests.";purpose='自动验收 / Native acceptance';category='Acceptance';tags=@('test');favorite=$false}}
+  if(-not $saved.id -or $saved.title -ne $title -or -not $saved.updatedAt -or $saved.PSObject.Properties.Name -contains 'prompts'){throw 'prompts.save must return the saved Prompt, not a snapshot'}
 }
 $skills = @()
 foreach ($name in @('acceptance-writer','acceptance-second')) {
