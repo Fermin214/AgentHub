@@ -1,12 +1,14 @@
 # Manual Windows release evidence
 
-These scenarios remain explicit `not-run` in the automated Release report. Run them on separately prepared disposable VM snapshots and keep an operator record alongside the automated report; do not edit automated statuses. No prior chat scripts are required. Full release acceptance combines the automated report with this record.
+Scenarios without an enabled, executed adapter remain explicit `not-run` in the automated Release report. Run remaining checks on a prepared disposable VM and keep an operator record alongside the automated report; do not edit automated statuses. The authorized runtime adapter and packaged maintenance subset are described in [acceptance automation](acceptance-automation.md). No prior chat scripts are required. Full release acceptance combines the automated report with the remaining operator record.
 
 For **each** scenario record ID, candidate source commit, all tested SHA256 values, VM identity/build, WebView2 version/state, start/end UTC, operator, exact actions, result (`passed`, `failed`, `not-run`, `environment-blocked`), reason, screenshots/logs, and restoration proof. Hash files before and after. An unexplained missing screenshot/check is not a pass. Link the record from the release acceptance summary.
 
 ## webview-missing
 
-1. Prepare a clean snapshot without WebView2. Do not rename or delete a shared installed runtime. If such a snapshot is unavailable, record `environment-blocked`.
+Startup dependency errors use the Windows UI language before opening the settings database. For a focused native regression check, run `scripts/acceptance/startup-dialog.ps1 -Executable <absolute-exe> -Sha256 <verified-hash> -Language zh -Case <new-case>` as the ordinary interactive TEST/Try user (use `en` on an English Windows desktop). The probe gives only its child an empty fixed-runtime folder, verifies the real dialog text/button, acknowledgement, exit code and absence of new data, and records a screenshot and cleanup result. Compare the frozen BASE executable with the fixed executable using this same probe. This process-local dependency fault is not evidence that the machine runtime was uninstalled, and does not replace the full missing-runtime/download-recovery scenarios below.
+
+1. Prefer a clean snapshot without WebView2. Alternatively, after explicit operator authorization, use the reversible TEST/Try runtime-isolation adapter described in [acceptance automation](acceptance-automation.md). Never improvise shared-runtime deletion or bypass its guards. If neither route is available, record `environment-blocked`.
 2. Preserve the snapshot identity and evidence that the runtime is absent. Extract the candidate portable ZIP into this run's new directory.
 3. Launch the portable executable and record its actual message/exit behavior. Do not claim it starts if dependency absence prevents startup.
 4. Launch the candidate installer and record its dependency-handling UI. The online successful path is completed in the next scenario.
@@ -14,7 +16,7 @@ For **each** scenario record ID, candidate source commit, all tested SHA256 valu
 
 ## webview-download-failure-recovery
 
-1. Start from the runtime-free snapshot. At the hypervisor/test-network layer, disconnect only this VM's network; record original adapter state. Do not change the personal host proxy or network.
+1. Start from the runtime-free snapshot. At the hypervisor/test-network layer, disconnect only this VM's network; record original adapter state. Alternatively the explicitly authorized adapter injects an unreachable proxy for the TEST VM user and records that narrower fault model. Do not change the personal host proxy or network.
 2. Run the candidate installer and record the runtime download failure and available recovery/cancel action. Check no partial AgentHub installation is presented as successful.
 3. Restore VM networking and retry through the offered UI (or relaunch if that is the supported recovery). Confirm installed WebView2, successful AgentHub startup and readable main navigation.
 4. Uninstall the test app, verify retained fictional data behavior where applicable, export evidence and restore the snapshot in a `finally`-equivalent operator cleanup step. If cleanup cannot finish, record `failed` and keep the VM isolated.

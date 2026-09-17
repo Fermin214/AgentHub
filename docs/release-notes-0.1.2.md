@@ -8,6 +8,7 @@
 - Skill 详情统一读取 Skill 库内容，移除“阅读位置”选择器。
 - 收藏保存仅影响当前条目，防止重复请求；修复连续切换、失败恢复、乱序回包及收藏与标签并发保存时的状态同步。
 - 改善中英文和最小窗口下的操作按钮布局，收藏等待时不再显示禁止鼠标指针。
+- 缺少 WebView2 Runtime 时，启动提示和确认按钮统一跟随 Windows 界面语言；关闭提示后退出，不再残留空白窗口和进程。
 - 补强自动化回归与隔离的桌面验收，并修复 Windows PowerShell 5.1 验收脚本编码兼容性。
 
 ### 下载与升级
@@ -29,6 +30,7 @@ This maintenance update fixes Prompt layout, Skill details and favorite interact
 - Read Skill details from the library and remove the read-location selector.
 - Keep favorite saving local to the selected entry and prevent duplicate requests. Fix repeated toggles, failure recovery, out-of-order responses, and concurrent favorite/tag updates.
 - Improve action layouts in both languages and at the minimum window size, and avoid a prohibited cursor while saving a favorite.
+- Match the missing-WebView2 startup message and acknowledgement to the Windows UI language, and exit after dismissal without leaving a blank window or process behind.
 - Strengthen regression and isolated desktop acceptance coverage, including Windows PowerShell 5.1 script encoding compatibility.
 
 ### Downloads and upgrade

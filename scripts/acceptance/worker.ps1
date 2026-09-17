@@ -9,12 +9,44 @@ New-Item -ItemType Directory -Path $evidence,"$evidence/logs","$evidence/screens
 $result=[ordered]@{scenarios=@();cleanup=@{status='failed';reason='Worker has not finished restoration'}}
 $baseline=$null
 $start=[DateTime]::UtcNow.ToString('o')
-function Run-VmScenario([string]$Id,[string]$Script,$Arguments,[switch]$ExpectedFailure) {
+function Run-VmScenario([string]$Id,[string]$Script,$Arguments,[switch]$ExpectedFailure,[switch]$Limited) {
     $began=[DateTime]::UtcNow.ToString('o')
     $case=$job.runId+'-'+$Id
     $log="$evidence/logs/$Id.log"
     try {
-        $scenarioExit=Invoke-AcceptanceProcess 'powershell.exe' (@('-NoProfile','-ExecutionPolicy','Bypass','-File',$Script)+$Arguments+@('-Case',$case)) $log
+        if($Limited){
+            # WebView2 ignores environment browser flags in an elevated host.
+            # Use the ordinary interactive user token, without changing app policy.
+            $childName=$job.taskName+'-'+$Id
+            if(Get-ScheduledTask -TaskName $childName -ErrorAction SilentlyContinue){throw 'Preserve existing interactive child task'}
+            $childJob="$evidence/$Id-job.json";$childExit="$evidence/$Id-exit.json"
+            Write-AcceptanceJson @{script=$Script;arguments=@($Arguments)+@('-Case',$case);log=$log;exit=$childExit} $childJob
+            $code=@'
+$ErrorActionPreference='Stop'
+try {
+ $job=[IO.File]::ReadAllText('__JOB__')|ConvertFrom-Json
+ & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $job.script @($job.arguments) *> $job.log
+ $code=$LASTEXITCODE
+ [IO.File]::WriteAllText($job.exit,([ordered]@{exitCode=$code}|ConvertTo-Json))
+ exit $code
+}catch { $_|Out-String|Write-Error;exit 1 }
+'@
+            $encoded=[Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($code.Replace('__JOB__',$childJob)))
+            $action=New-ScheduledTaskAction -Execute 'powershell.exe' -Argument ('-NoProfile -WindowStyle Hidden -EncodedCommand '+$encoded)
+            $principal=New-ScheduledTaskPrincipal -UserId 'TEST\Try' -LogonType Interactive -RunLevel Limited
+            $settings=New-ScheduledTaskSettingsSet -ExecutionTimeLimit ([TimeSpan]::Zero) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
+            Register-ScheduledTask -TaskName $childName -Action $action -Principal $principal -Settings $settings|Out-Null
+            Start-ScheduledTask -TaskName $childName
+            $deadline=[DateTime]::UtcNow.AddMinutes(10)
+            do { Start-Sleep -Milliseconds 500;$child=Get-ScheduledTask -TaskName $childName }while($child.State -eq 'Running' -and [DateTime]::UtcNow -lt $deadline)
+            if($child.State -eq 'Running'){throw 'Interactive child timed out; retain task and VM lock for recovery'}
+            if($child.Actions.Arguments -ne $action.Arguments){throw 'Interactive task ownership changed'}
+            Unregister-ScheduledTask -TaskName $childName -Confirm:$false
+            if(-not(Test-Path $childExit)){throw 'Interactive child stopped without an exit record'}
+            $scenarioExit=([IO.File]::ReadAllText($childExit)|ConvertFrom-Json).exitCode
+        }else{
+            $scenarioExit=Invoke-AcceptanceProcess 'powershell.exe' (@('-NoProfile','-ExecutionPolicy','Bypass','-File',$Script)+$Arguments+@('-Case',$case)) $log
+        }
         $source="C:\AgentHub-VM-Test\evidence\$case.json"
         $record=[IO.File]::ReadAllText($source) | ConvertFrom-Json
         Assert-NativeAcceptanceResult $record $scenarioExit $case -ExpectedFailure:$ExpectedFailure
@@ -30,6 +62,9 @@ function Run-VmScenario([string]$Id,[string]$Script,$Arguments,[switch]$Expected
         if (Test-Path -LiteralPath $source) { Copy-Item -LiteralPath $source -Destination "$evidence/$Id.json" }
         if (Test-Path -LiteralPath $caseRoot) {
             foreach($file in Get-ChildItem -LiteralPath $caseRoot -Filter '*.png' -File) { Copy-Item -LiteralPath $file.FullName -Destination "$evidence/screenshots/$Id-$($file.Name)" }
+            if(Test-Path "$caseRoot/screenshots"){Copy-Item -LiteralPath "$caseRoot/screenshots" -Destination "$evidence/screenshots/$Id" -Recurse}
+            if(Test-Path "$caseRoot/logs"){Copy-Item -LiteralPath "$caseRoot/logs" -Destination "$evidence/logs/$Id-details" -Recurse}
+            foreach($file in Get-ChildItem -LiteralPath $caseRoot -Filter '*.json' -File){Copy-Item -LiteralPath $file.FullName -Destination "$evidence/$Id-$($file.Name)"}
         }
     }
     # Do not enter the next system-changing case if cleanup failed.
@@ -56,10 +91,22 @@ try {
         Run-VmScenario 'upgrade' "$PSScriptRoot/../verify-windows-vm.ps1" @('-Installer',"$runRoot/base/AgentHub_$($base.version)_x64-setup.exe",'-Cli',"$runRoot/helpers/base-cli.exe",'-UpgradeInstaller',$installer,'-UpgradeCli',$cli)
     } else { $result.scenarios+=New-AcceptanceResult 'upgrade' 'environment-blocked' 'Supply published base candidate and matching CLI with BaseVersion' $start }
     Run-VmScenario 'installer-languages' "$PSScriptRoot/languages.ps1" @('-Installer',$installer)
+    if($job.packagedUi -eq $true){
+        if((Get-FileHash "$runRoot/helpers/node.exe").Hash -ne $job.nodeSha256){throw 'Node helper hash mismatch'}
+        $manifest=[IO.File]::ReadAllText("$runRoot/candidate/build-manifest.json")|ConvertFrom-Json
+        Run-VmScenario 'native-maintenance' "$PSScriptRoot/packaged.ps1" @('-PortableZip',"$runRoot/candidate/AgentHub-$($candidate.version)-windows-x64.zip",'-Cli',$cli,'-Node',"$runRoot/helpers/node.exe",'-DesktopSha256',$manifest.desktop.sha256) -Limited
+    }
+    if($job.allowRuntimeIsolation -eq $true){
+        Run-VmScenario 'webview-download-failure-recovery' "$PSScriptRoot/runtime.ps1" @('-Installer',$installer,'-PortableZip',"$runRoot/candidate/AgentHub-$($candidate.version)-windows-x64.zip",'-AuthorizedRuntimeIsolation')
+        $runtimeReport=[IO.File]::ReadAllText("$evidence/webview-download-failure-recovery.json")|ConvertFrom-Json
+        $missingStatus=if($runtimeReport.missingPassed -and $runtimeReport.cleanup.status -eq 'passed'){'passed'}else{'failed'}
+        $result.scenarios+=New-AcceptanceResult 'webview-missing' $missingStatus 'Operator-authorized runtime isolation; see missing-runtime and download UI evidence' $start @('vm/webview-download-failure-recovery.json')
+    }
 } catch { $result.scenarios+=New-AcceptanceResult 'vm-worker' 'failed' ($_.ToString()+' '+$_.ScriptStackTrace) $start }
 finally {
     $errors=@()
     try {
+        if(Get-ScheduledTask -TaskName ($job.taskName+'-*') -ErrorAction SilentlyContinue){throw 'Interactive child task remains; preserve VM lock'}
         $after=Get-TestMachineState
         Write-AcceptanceJson $after "$evidence/environment-after.json"
         if (-not $baseline) { throw 'No validated baseline; restoration cannot be established' }

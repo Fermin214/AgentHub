@@ -28,6 +28,8 @@ pwsh -NoProfile -File scripts/acceptance.ps1 -Profile Release `
 
 `BaseVersion` is the previous **public** version, not the candidate version. `baseCandidatePath` must contain the same four candidate files for that base. Omit the base paths if unavailable; upgrade becomes `environment-blocked`. Without `VmConfig`, no installer is executed and VM scenarios are blocked.
 
+`sshTarget` accepts `Try@hostname` or the explicit local account `TEST\Try@hostname`. Use the latter if OpenSSH cannot resolve the unqualified local user; do not change account permissions or SSH security policy.
+
 ```powershell
 pwsh -NoProfile -File scripts/acceptance.ps1 -Profile Release -ListScenarios
 pwsh -NoProfile -File scripts/acceptance.ps1 -Profile Release -DryRun
@@ -54,9 +56,15 @@ The browser fixture loads the actual frontend with a fictional in-memory IPC imp
 
 Windows CI retains its existing job names and packaging dependencies. The frontend job additionally runs harness self-tests and the same Edge UI suite, then uploads their evidence even when a test fails. `npm run test:ui` and `npm run test:acceptance` are convenient individual checks.
 
-The standard Release run intentionally remains incomplete until the manual scenarios are recorded. Do not convert missing evidence into passed results. Existing WebView2 is exercised by native startup; the runner does not rename/delete shared runtime folders or change proxy settings to create missing-runtime conditions.
+The standard Release run intentionally remains incomplete until the remaining manual scenarios are recorded. Do not convert missing evidence into passed results. Existing WebView2 is exercised by native startup. By default the runner does not alter shared runtime folders or proxy settings.
+
+An operator may explicitly authorize the TEST/Try VM-only reversible runtime-isolation adapter by setting the boolean `allowRuntimeIsolation` to `true` in the ignored VM config. Review `scripts/acceptance/runtime.ps1` first. It refuses other hosts, existing installations, multiple runtime versions and unrelated runtime users. It journals and preserves the original runtime and client registration, injects a temporary unreachable VM-user proxy for download failure, restores the proxy before online retry, and restores the original runtime even after successful retry. Downloaded runtime bytes are retained as evidence, never deleted. Any failed restoration fails the run and preserves the worker lock. This is a deliberate exception requiring fresh operator authorization; it is not physical network-disconnection evidence and does not change security policy. Snapshot recovery remains preferable when the required state cannot be proved.
 
 ## Read results
+
+For the exact CI portable app's maintenance regressions, set the boolean `packagedUi` to `true` in the ignored VM config. The transport stages the local Node executable and installed `playwright-core`, records the Node hash, and the existing worker runs `packaged.ps1`. It verifies the executable against the manifest and reuses the native fixture/layout/favorite/restart checks with an owned loopback-only endpoint. No application rebuild, default debugging setting or browser mock is involved. `native-maintenance` reports this scope; `native-ui-details` still requires the remaining manual checks (including real source cancellation/retry and bookmark click targets). Keep the source/helper provenance record with the candidate evidence.
+
+The maintenance child runs in a run-owned, non-elevated interactive task: elevated WebView2 hosts ignore environment browser flags. The worker retains elevation for installer/runtime operations. A missing child result, timeout or leftover task fails acceptance and preserves the lock; no child is silently terminated to manufacture cleanup success.
 
 Each run writes `output/acceptance/a-<UTC>-<random>/`:
 

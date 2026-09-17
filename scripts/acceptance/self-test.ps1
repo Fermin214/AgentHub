@@ -12,9 +12,25 @@ function Check([string]$Name,[scriptblock]$Action) {
 }
 function Reject([scriptblock]$Action) { $rejected=$false;try{& $Action | Out-Null}catch{$rejected=$true};if(-not $rejected){throw 'Expected rejection'} }
 try {
+    Check 'Startup dialog probe refuses the development host before input access' {
+        $code=Invoke-AcceptanceProcess 'powershell.exe' @('-NoProfile','-File',"$project/scripts/acceptance/startup-dialog.ps1",'-Executable','missing.exe','-Sha256','unused','-Language','zh','-Case','host-refusal') "$root/startup-refusal.log"
+        if($code -ne 1 -or -not ([IO.File]::ReadAllText("$root/startup-refusal.log")).Contains('Requires TEST/Try interactive disposable VM desktop')){throw 'Startup probe did not reach the host guard'}
+    }
+    Check 'SSH target permits only the fixed local test account without command syntax' {
+        . (Join-Path $PSScriptRoot 'transport.ps1')
+        Assert-VmSshTarget 'Try@192.168.1.2'
+        Assert-VmSshTarget 'TEST\Try@test-vm'
+        foreach($invalid in @('OTHER\Try@test-vm','TEST\Admin@test-vm','-oProxyCommand=cmd','Try@test;whoami','Try@test vm')){Reject { Assert-VmSshTarget $invalid }}
+    }
     Check 'Windows PowerShell 5.1 parses the native loading chain under Western ANSI' {
         $code=Invoke-AcceptanceProcess 'powershell.exe' @('-NoProfile','-File',"$project/scripts/acceptance/ps51-compatibility.ps1") "$root/ps51-compatibility.log"
         if($code -ne 0){throw "Windows PowerShell 5.1 encoding regression; see $root/ps51-compatibility.log"}
+    }
+    Check 'Runtime isolation requires explicit authorization before reading inputs' {
+        $code=Invoke-AcceptanceProcess 'powershell.exe' @('-NoProfile','-File',"$project/scripts/acceptance/runtime.ps1",'-Installer','missing.exe','-PortableZip','missing.zip','-Case','unauthorized-self-test') "$root/runtime-refusal.log"
+        if($code -ne 1 -or -not ([IO.File]::ReadAllText("$root/runtime-refusal.log")).Contains('Explicit runtime isolation authorization required')){throw 'Runtime isolation did not refuse unauthorized invocation'}
+        $code=Invoke-AcceptanceProcess 'powershell.exe' @('-NoProfile','-File',"$project/scripts/acceptance/runtime.ps1",'-Installer','missing.exe','-PortableZip','missing.zip','-Case','wrong-host-self-test','-AuthorizedRuntimeIsolation') "$root/runtime-host-refusal.log"
+        if($code -ne 1 -or -not ([IO.File]::ReadAllText("$root/runtime-host-refusal.log")).Contains('Requires TEST/Try interactive disposable VM desktop')){throw 'Runtime isolation bypassed the test-host guard'}
     }
     Check 'Containment rejects siblings and traversal' {
         Reject { Assert-AcceptancePath "$root/../outside" $root }
