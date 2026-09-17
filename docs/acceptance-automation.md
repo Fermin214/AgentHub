@@ -4,6 +4,7 @@ Run from the repository root. No conversation history is required. The entry poi
 
 ## Requirements
 
+- CI uses Node 22. The optional `headerReviewOnly` fixture requires Node 24+ with built-in `node:sqlite`; provide that executable on the host for transport to the VM. This additional requirement does not apply to ordinary PR checks.
 - Host: Windows, PowerShell 7 (`pwsh`), Node/npm, Rust/MSVC toolchain from [contributing](../CONTRIBUTING.md), Git, and installed Microsoft Edge. Run `npm ci` first. Playwright is pinned in the lockfile and uses Edge; no global Playwright install or browser download is needed.
 - Optional local bundled build tools: set `AGENTHUB_BUILD_ROOT` as described in `scripts/build-env.ps1`. An explicit `RUSTUP_TOOLCHAIN` override is process-local; record it when used.
 - Release: OpenSSH client and key-based access to the disposable **TEST / Try** Windows VM. The Try desktop must be logged in and unlocked. VMware, Hyper-V, VirtualBox, KVM/QEMU hardware is checked. The fixed root is `C:\AgentHub-VM-Test`. Scheduled tasks run as Try in its interactive desktop. A disconnected/locked desktop can block native UI checks.
@@ -52,13 +53,14 @@ ListScenarios is read-only and exits 0. DryRun creates a plan/report with `not-r
 | Release languages | English and Chinese repair/upgrade/downgrade/running warnings; cancellation preserves bytes. Page-selection fixtures simulate registration versions; the upgrade scenario separately tests real migration |
 | Release cleanup | Before/after proxy values, WebView2 executable hashes, registration, remembered path, shortcuts, default directory and AgentHub processes; owned task removed; candidate bytes checked again |
 | Failure cleanup probe | Deliberately fail immediately after installation; require a nonzero child exit, the exact injected error and successful `finally` restoration |
-| Manual release scenarios | Missing WebView2, offline download/recovery, real browser download/security prompts, and detailed packaged-WebView2 interaction: explicit `not-run` with the [manual runbook](acceptance-manual.md) |
+| Release browser download/startup | Automated with `browserUrlFile` and a ready interactive VM; otherwise use the [manual runbook](acceptance-manual.md). Missing prerequisites or policy blocks are not passes; retain the actual runner status and operator evidence |
+| Other operator-dependent release scenarios | Missing WebView2 and download/recovery support the explicitly authorized runtime adapter below; remaining detailed packaged-WebView2 interactions use the [manual runbook](acceptance-manual.md). Unexecuted checks remain `not-run` or `environment-blocked` |
 
 The browser fixture loads the actual frontend with a fictional in-memory IPC implementation. It does **not** prove real Git cancellation, installed WebView2 behavior, backend persistence or aesthetic quality. Rust tests and native release scenarios provide separate evidence. The fixture is outside the production entry point and is not bundled into the app.
 
 Windows CI retains its existing job names and packaging dependencies. The frontend job additionally runs harness self-tests and the same Edge UI suite, then uploads their evidence even when a test fails. `npm run test:ui` and `npm run test:acceptance` are convenient individual checks.
 
-The standard Release run intentionally remains incomplete until the remaining manual scenarios are recorded. Do not convert missing evidence into passed results. Existing WebView2 is exercised by native startup. By default the runner does not alter shared runtime folders or proxy settings.
+The standard Release run remains incomplete when required evidence is missing. Optional adapters can execute operator-dependent scenarios; retain separate operator records for checks not covered by those adapters. Do not convert missing evidence into passed results. Existing WebView2 is exercised by native startup. By default the runner does not alter shared runtime folders or proxy settings.
 
 An operator may explicitly authorize the TEST/Try VM-only reversible runtime-isolation adapter by setting the boolean `allowRuntimeIsolation` to `true` in the ignored VM config. Review `scripts/acceptance/runtime.ps1` first. It refuses other hosts, existing installations, multiple runtime versions and unrelated runtime users. It journals and preserves the original runtime and client registration, injects a temporary unreachable VM-user proxy for download failure, restores the proxy before online retry, and restores the original runtime even after successful retry. Downloaded runtime bytes are retained as evidence, never deleted. Any failed restoration fails the run and preserves the worker lock. This is a deliberate exception requiring fresh operator authorization; it is not physical network-disconnection evidence and does not change security policy. Snapshot recovery remains preferable when the required state cannot be proved.
 
@@ -73,6 +75,8 @@ For the exact CI portable app's maintenance regressions, set the boolean `packag
 The maintenance child runs in a run-owned, non-elevated interactive task: elevated WebView2 hosts ignore environment browser flags. The worker retains elevation for installer/runtime operations. A missing child result, timeout or leftover task fails acceptance and preserves the lock; no child is silently terminated to manufacture cleanup success.
 
 For a focused manual-header follow-up on unchanged candidate bytes, set both `packagedUi` and `headerReviewOnly` to `true` in the ignored VM config and use the same Release command. This selects only `native-header-review`, integrity and cleanup. It seeds fictional remote-source metadata in the isolated SQLite fixture (matching `store.rs`), then reads it through the real packaged backend and reviews the source link and Prompt preview at 860x640 in both languages. It does not clone Git, open external links, rerun installer scenarios or establish full release acceptance. Other scenarios remain not-run in this follow-up report; retain the earlier exact-candidate evidence alongside it. Node 24+ with built-in `node:sqlite` is required for this optional fixture step.
+
+`native-header-review` is supplemental evidence emitted by this focused worker mode, not an independent required scenario in `scenarios.json`. It does not replace `native-ui-details` or complete the standard Release profile.
 
 Each run writes `output/acceptance/a-<UTC>-<random>/`:
 
