@@ -26,6 +26,8 @@ $proxySaved=@();$proxyChanged=$false;$registrySaved=@();$moved=$false;$searchPat
 $installRoot=Join-Path $env:LOCALAPPDATA 'AgentHub'
 $oldArguments=$env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS
 $oldProfile=$env:WEBVIEW2_USER_DATA_FOLDER
+$missingDialogHandle=[IntPtr]::Zero
+$missingTextPattern='Could not find the WebView2 Runtime|The WebView2 Runtime was not found|\u672a\u627e\u5230 WebView2 Runtime'
 function Save { Write-AcceptanceJson $report "$root/report.json" }
 function Step([string]$Text){$report.steps+=$Text;Save}
 function Close-Owned($Process){
@@ -34,16 +36,33 @@ function Close-Owned($Process){
  $identity=Get-CimInstance Win32_Process -Filter "ProcessId=$($Process.Id)"
  # Tauri's missing-runtime task dialog has no working close-box. Dismiss only
  # its observed acknowledgement, in this run's verified portable executable.
- if($identity.ExecutablePath -eq (Join-Path $root 'portable\AgentHub.exe') -and $Process.MainWindowHandle -ne [IntPtr]::Zero){
-  $window=[Windows.Automation.AutomationElement]::FromHandle($Process.MainWindowHandle)
+ if($identity.ExecutablePath -eq (Join-Path $root 'portable\AgentHub.exe')){
+  # MainWindowHandle can switch back to the blank owner window. Use the exact
+  # dialog handle whose body was captured before trying to acknowledge it.
+  [uint32]$dialogPid=0
+  if($script:missingDialogHandle -eq [IntPtr]::Zero -or -not [RuntimeCapture]::GetWindowThreadProcessId($script:missingDialogHandle,[ref]$dialogPid) -or $dialogPid -ne $Process.Id){throw 'Recorded runtime dialog is no longer owned by this process'}
+  $window=[Windows.Automation.AutomationElement]::FromHandle($script:missingDialogHandle)
   $elements=@($window.FindAll([Windows.Automation.TreeScope]::Descendants,[Windows.Automation.Condition]::TrueCondition))
-  if(($elements|ForEach-Object {$_.Current.Name}) -match 'Could not find the WebView2 Runtime'){
-   $button=@($elements|Where-Object {$_.Current.ControlType -eq [Windows.Automation.ControlType]::Button -and $_.Current.IsEnabled -and $_.Current.Name -in @('OK',([string][char]0x786e+[char]0x5b9a))})
+  if(($elements|ForEach-Object {$_.Current.Name}) -match $missingTextPattern){
+   $button=@($elements|Where-Object {$_.Current.AutomationId -match '^CommandButton_(1|100)$' -and $_.Current.IsEnabled -and $_.Current.Name -in @('OK',([string][char]0x786e+[char]0x5b9a))})
    if($button.Count -ne 1){throw 'Missing-runtime acknowledgement is ambiguous'}
-   $button[0].GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern).Invoke()
+   # This native TaskDialog exposes its acknowledgement as a Pane, without
+   # InvokePattern. Acknowledge only the observed, owned task-dialog button.
+   if(-not [RuntimeCapture]::PostMessage([IntPtr]$window.Current.NativeWindowHandle,1126,[IntPtr]([int]($button[0].Current.AutomationId -replace '^CommandButton_','')),[IntPtr]::Zero)){throw 'Could not acknowledge missing-runtime dialog'}
   }else{[void]$Process.CloseMainWindow()}
  }else{[void]$Process.CloseMainWindow()}
- if(-not $Process.WaitForExit(10000)){throw "Owned process did not close: $($Process.Id)"}
+ if(-not $Process.WaitForExit(10000)){
+  if($identity.ExecutablePath -eq (Join-Path $root 'portable\AgentHub.exe') -and $report.portableMissing.ui -match $missingTextPattern){
+   $Process.Refresh();[void]$Process.CloseMainWindow()
+   if(-not $Process.WaitForExit(5000)){
+    $current=Get-CimInstance Win32_Process -Filter "ProcessId=$($Process.Id)"
+    if($current.ExecutablePath -ne $identity.ExecutablePath){throw 'Portable process ownership changed'}
+    $report.portableMissing.forcedTermination=$true
+    Stop-Process -Id $Process.Id -Force
+    if(-not $Process.WaitForExit(5000)){throw 'Owned startup-error process remained after cleanup'}
+   }
+  }else{throw "Owned process did not close: $($Process.Id)"}
+ }
 }
 function Restore-Proxy {
  if(-not $script:proxyChanged){return}
@@ -70,12 +89,15 @@ public class RuntimeCapture {
  [StructLayout(LayoutKind.Sequential)] public struct Rect{public int Left,Top,Right,Bottom;}
  [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h,out Rect r);
  [DllImport("user32.dll")] public static extern bool PrintWindow(IntPtr h,IntPtr dc,uint f);
+ [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr h,uint message,IntPtr w,IntPtr l);
+ [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h,out uint process);
 }
 '@
 function Capture($Process,[string]$Name){
  $Process.Refresh();if($Process.HasExited -or $Process.MainWindowHandle -eq [IntPtr]::Zero){return @()}
  $window=[Windows.Automation.AutomationElement]::FromHandle($Process.MainWindowHandle)
  $names=@($window.FindAll([Windows.Automation.TreeScope]::Descendants,[Windows.Automation.Condition]::TrueCondition)|ForEach-Object {$_.Current.Name})
+ if($Name -eq 'portable-missing' -and $names -match $missingTextPattern){$script:missingDialogHandle=$Process.MainWindowHandle}
  Write-AcceptanceJson $names "$root/$Name.json"
  $rect=New-Object RuntimeCapture+Rect
  if(-not [RuntimeCapture]::GetWindowRect($Process.MainWindowHandle,[ref]$rect)){throw 'Window rectangle unavailable'}
@@ -111,7 +133,7 @@ try {
  $report.portableMissing=@{exited=$app.HasExited;exitCode=$(if($app.HasExited){$app.ExitCode}else{$null});ui=@(Capture $app 'portable-missing')}
  if($report.portableMissing.ui -contains 'Prompts'){throw 'Portable unexpectedly rendered without the isolated runtime'}
  if(-not $report.portableMissing.exited -and -not $report.portableMissing.ui.Count){throw 'Portable missing-runtime behavior was not observable'}
- Close-Owned $app;$app=$null
+ Close-Owned $app; $report.portableMissing.exitCode=$app.ExitCode; $report.portableMissing.exited=$app.HasExited; if(-not $report.portableMissing.forcedTermination -and $app.ExitCode -ne 1){throw 'Missing-runtime startup must exit 1'}; $app=$null
  Step 'Actual runtime path and detection registration isolated; recorded portable startup outcome'
  $key=Get-Item -LiteralPath $proxyKey
  foreach($name in @('ProxyEnable','ProxyServer','ProxyOverride','AutoConfigURL','AutoDetect')){$exists=$key.GetValueNames() -contains $name;$proxySaved+=@{name=$name;exists=$exists;value=$(if($exists){$key.GetValue($name)}else{$null});kind=$(if($exists){$key.GetValueKind($name).ToString()}else{$null})}}
@@ -138,7 +160,7 @@ try {
  $report.downloadFailureUi=@(Capture $installerProcess 'download-failure')
  if(-not $failure){throw 'Did not capture explicit runtime download failure'}
  if(Test-Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\AgentHub'){throw 'Offline installation incorrectly registered success'}
- $report.missingPassed=$true
+ $report.missingPassed=-not [bool]$report.portableMissing.forcedTermination
  Close-Owned $installerProcess;$installerProcess=$null
  Restore-Proxy
  Step 'Unreachable VM-user proxy produced explicit download failure; original proxy restored before online retry'
@@ -151,7 +173,11 @@ try {
  $deadline=[DateTime]::UtcNow.AddSeconds(40);$names=@()
  do{Start-Sleep -Milliseconds 500;$names=@(Capture $app 'online-startup');if($names -contains 'Prompts'){break}}while([DateTime]::UtcNow -lt $deadline)
  if($names -notcontains 'Prompts'){throw 'App did not render after online recovery'}
- $report.recoveryPassed=$true;$report.status='passed'
+ $report.recoveryPassed=$true
+ if($report.portableMissing.forcedTermination){
+  $report.status='failed';$report.error='Portable missing-runtime dialog was acknowledged but the process did not exit; only the owned test process was force-closed'
+  $report.missingPassed=$false
+ }else{$report.status='passed'}
 }catch{$report.status='failed';$report.error=$_.ToString();$report.stack=$_.ScriptStackTrace}
 finally {
  $errors=@()

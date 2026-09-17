@@ -12,6 +12,10 @@ function Check([string]$Name,[scriptblock]$Action) {
 }
 function Reject([scriptblock]$Action) { $rejected=$false;try{& $Action | Out-Null}catch{$rejected=$true};if(-not $rejected){throw 'Expected rejection'} }
 try {
+    Check 'Startup dialog probe refuses the development host before input access' {
+        $code=Invoke-AcceptanceProcess 'powershell.exe' @('-NoProfile','-File',"$project/scripts/acceptance/startup-dialog.ps1",'-Executable','missing.exe','-Sha256','unused','-Language','zh','-Case','host-refusal') "$root/startup-refusal.log"
+        if($code -ne 1 -or -not ([IO.File]::ReadAllText("$root/startup-refusal.log")).Contains('Requires TEST/Try interactive disposable VM desktop')){throw 'Startup probe did not reach the host guard'}
+    }
     Check 'SSH target permits only the fixed local test account without command syntax' {
         . (Join-Path $PSScriptRoot 'transport.ps1')
         Assert-VmSshTarget 'Try@192.168.1.2'

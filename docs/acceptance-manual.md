@@ -6,6 +6,8 @@ For **each** scenario record ID, candidate source commit, all tested SHA256 valu
 
 ## webview-missing
 
+Startup dependency errors use the Windows UI language before opening the settings database. For a focused native regression check, run `scripts/acceptance/startup-dialog.ps1 -Executable <absolute-exe> -Sha256 <verified-hash> -Language zh -Case <new-case>` as the ordinary interactive TEST/Try user (use `en` on an English Windows desktop). The probe gives only its child an empty fixed-runtime folder, verifies the real dialog text/button, acknowledgement, exit code and absence of new data, and records a screenshot and cleanup result. Compare the frozen BASE executable with the fixed executable using this same probe. This process-local dependency fault is not evidence that the machine runtime was uninstalled, and does not replace the full missing-runtime/download-recovery scenarios below.
+
 1. Prefer a clean snapshot without WebView2. Alternatively, after explicit operator authorization, use the reversible TEST/Try runtime-isolation adapter described in [acceptance automation](acceptance-automation.md). Never improvise shared-runtime deletion or bypass its guards. If neither route is available, record `environment-blocked`.
 2. Preserve the snapshot identity and evidence that the runtime is absent. Extract the candidate portable ZIP into this run's new directory.
 3. Launch the portable executable and record its actual message/exit behavior. Do not claim it starts if dependency absence prevents startup.
