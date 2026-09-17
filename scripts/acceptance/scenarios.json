@@ -1,4 +1,10 @@
 [
+  {"id":"native-environment","profile":"DevelopmentDesktop","coverage":"Interactive Windows, toolchain, isolated paths and unused loopback ports"},
+  {"id":"native-build","profile":"DevelopmentDesktop","coverage":"Build current checkout debug desktop and internal CLI, record hashes"},
+  {"id":"native-contract","profile":"DevelopmentDesktop","coverage":"Fictional isolated data and real Rust partial-response/field-patch contracts"},
+  {"id":"native-ui","profile":"DevelopmentDesktop","coverage":"Real App/WebView2 bilingual layout, library reader, favorite isolation, explicit IPC faults"},
+  {"id":"native-restart","profile":"DevelopmentDesktop","coverage":"New process reads committed favorites without injected transport"},
+  {"id":"native-cleanup","profile":"DevelopmentDesktop","coverage":"Stop owned processes, restore process environment, retain isolated evidence"},
   {"id":"rust","profile":"PullRequest","coverage":"Rust workspace tests"},
   {"id":"frontend","profile":"PullRequest","coverage":"Vitest frontend tests"},
   {"id":"production-build","profile":"PullRequest","coverage":"TypeScript and Vite production build"},

@@ -12,6 +12,10 @@ function Check([string]$Name,[scriptblock]$Action) {
 }
 function Reject([scriptblock]$Action) { $rejected=$false;try{& $Action | Out-Null}catch{$rejected=$true};if(-not $rejected){throw 'Expected rejection'} }
 try {
+    Check 'Windows PowerShell 5.1 parses the native loading chain under Western ANSI' {
+        $code=Invoke-AcceptanceProcess 'powershell.exe' @('-NoProfile','-File',"$project/scripts/acceptance/ps51-compatibility.ps1") "$root/ps51-compatibility.log"
+        if($code -ne 0){throw "Windows PowerShell 5.1 encoding regression; see $root/ps51-compatibility.log"}
+    }
     Check 'Containment rejects siblings and traversal' {
         Reject { Assert-AcceptancePath "$root/../outside" $root }
         Reject { Assert-AcceptancePath ($root+'-other/file') $root }
@@ -47,7 +51,7 @@ try {
     if($env:COMPUTERNAME -ne 'TEST' -or $env:USERNAME -ne 'Try') {
         Check 'Native release entry refuses the development host before opening inputs' {
             $code=Invoke-AcceptanceProcess 'powershell.exe' @('-NoProfile','-File',"$project/scripts/verify-windows-vm.ps1",'-Case','self-test-refusal','-Installer','does-not-exist.exe','-Cli','does-not-exist.exe') "$root/host-refusal.log"
-            if($code -eq 0 -or -not ([IO.File]::ReadAllText("$root/host-refusal.log")).Contains('Requires TEST/Try interactive disposable VM desktop')){throw 'Host safety guard was not reached before input use'}
+            if($code -ne 1 -or -not ([IO.File]::ReadAllText("$root/host-refusal.log")).Contains('Requires TEST/Try interactive disposable VM desktop')){throw 'Host safety guard was not reached before input use'}
         }
     }
     $files=@()
@@ -80,6 +84,30 @@ try {
         $report=[IO.File]::ReadAllText("$run/acceptance.json")|ConvertFrom-Json
         if($report.scenarios.Count -ne 4 -or @($report.scenarios|Where-Object status -ne 'not-run').Count){throw 'Dry run executed a scenario'}
     }
+    Check 'Empty results and omitted required scenarios cannot become passed' {
+        if((Get-AcceptanceExitCode @()) -ne 2){throw 'Empty result was accepted'}
+        $record=[ordered]@{profile='PullRequest';sourceCommit=('b'*40);workingTreeClean=$true;startedAt='test';finishedAt=$null;requiredScenarios=@('executed','missing');scenarios=@(New-AcceptanceResult 'executed' 'passed' 'fixture' 'test')}
+        $dir=Join-Path $root 'missing';New-Item -ItemType Directory -Path $dir | Out-Null
+        Write-AcceptanceReport $record $dir
+        if($record.exitCode -ne 2){throw 'Missing required scenario was accepted'}
+        $written=Get-Content "$dir/acceptance.json" -Raw|ConvertFrom-Json
+        if($written.status -ne 'incomplete' -or $written.requiredScenarios -notcontains 'missing'){throw 'Missing requirement was lost in report'}
+        if(-not([IO.File]::ReadAllText("$dir/acceptance.md")).Contains('missing: not-run')){throw 'Summary concealed the missing scenario'}
+    }
+    Check 'Timed-out process is failed and terminated, never successful' {
+        Reject { Invoke-AcceptanceTimedProcess 'pwsh' @('-NoProfile','-Command','Start-Sleep -Seconds 30') "$root/timeout.log" 1 }
+        if(-not([IO.File]::ReadAllText("$root/timeout.log")).Contains('ACCEPTANCE_TIMEOUT')){throw 'Timeout not identified'}
+        Invoke-AcceptanceTimedProcess 'pwsh' @('-NoProfile','-Command','exit 0') "$root/success.log" 10
+        Reject { Invoke-AcceptanceTimedProcess 'pwsh' @('-NoProfile','-Command','exit 1') "$root/exit-one.log" 10 }
+    }
+    Check 'Development desktop dry run cannot claim native validation' {
+        & pwsh -NoProfile -File "$project/scripts/acceptance.ps1" -Profile DevelopmentDesktop -DryRun -OutputRoot "$root/native-dry" *> "$root/native-dry.log"
+        if($LASTEXITCODE -ne 2){throw 'Native dry run false pass'}
+        $dir=(Get-ChildItem "$root/native-dry" -Directory|Select-Object -First 1).FullName
+        $record=Get-Content "$dir/acceptance.json" -Raw|ConvertFrom-Json
+        if($record.scenarios.Count -ne 6 -or @($record.scenarios|Where-Object status -ne 'not-run').Count){throw 'Native dry run executed work'}
+    }
+
     Write-AcceptanceJson @{status='passed';checks=$checks;finishedAt=[DateTime]::UtcNow.ToString('o')} "$root/self-test.json"
     Write-Host "Self-test evidence: $root"
 } catch {

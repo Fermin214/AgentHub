@@ -1,5 +1,5 @@
 param(
-    [ValidateSet('PullRequest','Release')][string]$Profile='PullRequest',
+    [ValidateSet('PullRequest','DevelopmentDesktop','Release')][string]$Profile='PullRequest',
     [string]$CandidatePath,
     [string]$BaseVersion,
     [string]$VmConfig,
@@ -17,7 +17,7 @@ if (-not [IO.Path]::IsPathRooted($OutputRoot)) { $OutputRoot = Join-Path $projec
 $directory = Assert-AcceptancePath (Join-Path $OutputRoot $run) $OutputRoot
 if (Test-Path -LiteralPath $directory) { throw 'Evidence directory already exists' }
 New-Item -ItemType Directory -Path $directory,(Join-Path $directory 'logs'),(Join-Path $directory 'screenshots') | Out-Null
-$report = [ordered]@{schemaVersion=1; runId=$run; profile=$Profile; sourceCommit=$null; workingTreeClean=$null; startedAt=[DateTime]::UtcNow.ToString('o'); finishedAt=$null; scenarios=@(); dryRun=[bool]$DryRun}
+$report = [ordered]@{schemaVersion=1; runId=$run; profile=$Profile; sourceCommit=$null; workingTreeClean=$null; startedAt=[DateTime]::UtcNow.ToString('o'); finishedAt=$null; scenarios=@(); requiredScenarios=@($catalog.id); dryRun=[bool]$DryRun}
 $cleanup = [ordered]@{status='passed'; notes=@('No host system settings changed'); errors=@()}
 $before = $null
 $oldEvidence = $env:AGENTHUB_ACCEPTANCE_OUTPUT
@@ -26,13 +26,12 @@ $uiPortWasBusy=$false
 Write-AcceptanceJson @{before=$null; after=$null; unchanged=$null} (Join-Path $directory 'candidate-hashes.json')
 Write-AcceptanceJson $cleanup (Join-Path $directory 'cleanup.json')
 Write-AcceptanceJson @{computer=$env:COMPUTERNAME; user=$env:USERNAME; os=[Environment]::OSVersion.VersionString; powershell=$PSVersionTable.PSVersion.ToString(); kind='host'; buildRoot=$env:AGENTHUB_BUILD_ROOT; rustupToolchain=$env:RUSTUP_TOOLCHAIN; node=$(if(Get-Command node -ErrorAction SilentlyContinue){(& node --version) -join ''}else{'unavailable'}); edge=$(if(Test-Path -LiteralPath 'C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe'){(Get-Item -LiteralPath 'C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe').VersionInfo.ProductVersion}else{'not detected at standard path'})} (Join-Path $directory 'environment.json')
-function Run-Check([string]$Id, [scriptblock]$Command) {
+function Run-Check([string]$Id, [string]$Executable, [string[]]$Arguments) {
     $start = [DateTime]::UtcNow.ToString('o')
     $log = Join-Path $directory "logs/$Id.log"
     Write-Host "[$Id] starting"
     try {
-        & $Command *> $log
-        if ($LASTEXITCODE -ne 0) { throw "Command exit code $LASTEXITCODE; see logs/$Id.log" }
+        Invoke-AcceptanceTimedProcess $Executable $Arguments $log
         $report.scenarios += New-AcceptanceResult $Id 'passed' 'Completed' $start @("logs/$Id.log")
     } catch { $report.scenarios += New-AcceptanceResult $Id 'failed' $_.ToString() $start @("logs/$Id.log") }
     Write-Host "[$Id] $($report.scenarios[-1].status)"
@@ -49,13 +48,20 @@ try {
     if ($DryRun) {
         foreach ($scenario in $catalog) { $report.scenarios += New-AcceptanceResult $scenario.id 'not-run' ('Dry run: '+$scenario.coverage) $report.startedAt }
     } elseif ($Profile -eq 'PullRequest') {
-        Run-Check 'rust' { & pwsh -NoProfile -File scripts/test.ps1 -Stage Rust }
-        Run-Check 'frontend' { & pwsh -NoProfile -File scripts/test.ps1 -Stage Frontend }
-        Run-Check 'production-build' { & pwsh -NoProfile -File scripts/test.ps1 -Stage Build }
+        Run-Check 'rust' 'pwsh' @('-NoProfile','-File','scripts/test.ps1','-Stage','Rust')
+        Run-Check 'frontend' 'pwsh' @('-NoProfile','-File','scripts/test.ps1','-Stage','Frontend')
+        Run-Check 'production-build' 'pwsh' @('-NoProfile','-File','scripts/test.ps1','-Stage','Build')
         $env:AGENTHUB_ACCEPTANCE_OUTPUT = $directory
         $uiBaseline=@(Get-CimInstance Win32_Process -Filter "Name='msedge.exe'" | Where-Object { $_.CommandLine -like '*playwright_chromiumdev_profile*' } | Select-Object -ExpandProperty ProcessId)
         $uiPortWasBusy=[bool](Get-NetTCPConnection -LocalPort 1437 -State Listen -ErrorAction SilentlyContinue)
-        Run-Check 'ui-smoke' { & node node_modules/@playwright/test/cli.js test }
+        if ($uiPortWasBusy) {
+            $report.scenarios += New-AcceptanceResult 'ui-smoke' 'environment-blocked' 'Port 1437 is already owned; never attach to another checkout' $report.startedAt
+        } else { Run-Check 'ui-smoke' 'node' @('node_modules/@playwright/test/cli.js','test') }
+    } elseif ($Profile -eq 'DevelopmentDesktop') {
+        . (Join-Path $PSScriptRoot 'acceptance/desktop.ps1')
+        Invoke-DevelopmentDesktop $report $directory $project
+        $cleanup.native=[IO.File]::ReadAllText((Join-Path $directory 'native-cleanup.json')) | ConvertFrom-Json
+        if($cleanup.native.status -ne 'passed'){$cleanup.status='failed'}
     } else {
         if (-not $CandidatePath) { throw 'Release requires CandidatePath' }
         $CandidatePath = [IO.Path]::GetFullPath($CandidatePath)

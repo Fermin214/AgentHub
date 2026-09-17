@@ -21,7 +21,7 @@ export default defineConfig({
     trace: 'retain-on-failure',
   },
   webServer: {
-    command: 'node node_modules/vite/bin/vite.js --port 1437 --strictPort',
+    command: 'node node_modules/vite/bin/vite.js --config scripts/acceptance/ui-vite.config.ts --port 1437 --strictPort',
     url: 'http://127.0.0.1:1437/tests/ui/index.html',
     reuseExistingServer: false,
     timeout: 30_000,

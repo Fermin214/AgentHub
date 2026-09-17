@@ -58,9 +58,29 @@ function Get-CandidateProof([string]$Directory) {
     return [ordered]@{sourceCommit=$manifest.sourceCommit; version=$manifest.version; ciRunId=$manifest.ciRunId; repository=$manifest.repository; files=$hashes}
 }
 function Get-AcceptanceExitCode($Scenarios) {
+    if (@($Scenarios).Count -eq 0) { return 2 }
     if (@($Scenarios | Where-Object { $_.status -eq 'failed' }).Count) { return 1 }
     if (@($Scenarios | Where-Object { $_.status -ne 'passed' }).Count) { return 2 }
     return 0
+}
+# Host-only (PowerShell 7). Own the child tree and bound its lifetime; a timeout
+# is a failure even if the child happened to exit successfully during termination.
+function Invoke-AcceptanceTimedProcess([string]$Executable, [string[]]$Arguments, [string]$Log, [int]$TimeoutSeconds=900) {
+    $info = [Diagnostics.ProcessStartInfo]::new((Get-Command $Executable -ErrorAction Stop).Source)
+    $info.UseShellExecute=$false; $info.CreateNoWindow=$true
+    $info.RedirectStandardOutput=$true; $info.RedirectStandardError=$true
+    $info.StandardOutputEncoding=[Text.Encoding]::UTF8; $info.StandardErrorEncoding=[Text.Encoding]::UTF8
+    foreach ($argument in $Arguments) { $info.ArgumentList.Add($argument) }
+    $process = [Diagnostics.Process]::new(); $process.StartInfo=$info
+    try {
+        if (-not $process.Start()) { throw 'Child did not start' }
+        $stdout=$process.StandardOutput.ReadToEndAsync(); $stderr=$process.StandardError.ReadToEndAsync()
+        $timedOut=-not $process.WaitForExit($TimeoutSeconds*1000)
+        if ($timedOut) { $process.Kill($true); $process.WaitForExit() }
+        [IO.File]::WriteAllText($Log, $stdout.GetAwaiter().GetResult()+$stderr.GetAwaiter().GetResult())
+        if ($timedOut) { [IO.File]::AppendAllText($Log,"`nACCEPTANCE_TIMEOUT after $TimeoutSeconds seconds"); throw "ACCEPTANCE_TIMEOUT: $Log" }
+        if ($process.ExitCode -ne 0) { throw "Command exit code $($process.ExitCode); see $Log" }
+    } finally { $process.Dispose() }
 }
 function Assert-NativeAcceptanceResult($Record, [int]$ExitCode, [string]$Case, [switch]$ExpectedFailure) {
     if ($Record.case -ne $Case) { throw 'Native evidence case ID mismatch' }
@@ -75,10 +95,26 @@ function New-AcceptanceResult([string]$Id, [string]$Status, [string]$Reason, [st
 function Write-AcceptanceReport($Report, [string]$Directory) {
     $Report.finishedAt = [DateTime]::UtcNow.ToString('o')
     $Report.exitCode = Get-AcceptanceExitCode $Report.scenarios
+    if ($Report.exitCode -eq 0 -and @($Report.requiredScenarios | Where-Object { $_ -notin @($Report.scenarios.id) }).Count) { $Report.exitCode=2 }
     $Report.status = if ($Report.exitCode -eq 0) {'passed'} elseif ($Report.exitCode -eq 1) {'failed'} else {'incomplete'}
     Write-AcceptanceJson $Report (Join-Path $Directory 'acceptance.json')
     $lines = @('# AgentHub acceptance', '', "Profile: $($Report.profile)", "Status: **$($Report.status)** (exit $($Report.exitCode))", "Harness commit: $($Report.sourceCommit)", "Working tree clean: $($Report.workingTreeClean)", "Started: $($Report.startedAt)", "Finished: $($Report.finishedAt)", '', '| Scenario | Status | Reason |', '| --- | --- | --- |')
     foreach ($row in $Report.scenarios) { $lines += "| $($row.id) | $($row.status) | $(($row.reason -replace '\|','/' -replace '[\r\n]+',' ')) |" }
-    $lines += @('', 'See acceptance.json for timestamps and evidence. Fixture UI smoke uses a simulated transport; native release scenarios test packaged binaries.', 'Blocked or unrun release scenarios need follow-up before claiming full release acceptance. This command never publishes a release.')
+    $layer = switch ($Report.profile) {
+        'PullRequest' { 'Rust / component / simulated IPC browser. Not native desktop or release-package acceptance.' }
+        'DevelopmentDesktop' { 'Development Tauri / real WebView2 / real Rust persistence. Explicit IPC faults are not physical disk failures. Not release-package acceptance.' }
+        'Release' { 'Immutable packaged candidate; manual release scenarios remain required.' }
+    }
+    $lines += @('', "Layer: $layer", "Candidate source: $($Report.candidateSourceCommit)", '', '## Follow-up')
+    $pending=@($Report.scenarios | Where-Object status -ne 'passed')
+    $missing=@($Report.requiredScenarios | Where-Object { $_ -notin @($Report.scenarios.id) })
+    if ($Report.exitCode -eq 0) { $lines+='No automated blockers in this selected profile.' }
+    if (-not @($Report.scenarios).Count) { $lines+='No scenarios executed; acceptance is incomplete.' }
+    foreach($id in $missing){$lines+="- ${id}: not-run - required result missing"}
+    foreach ($row in $pending) { $lines+="- $($row.id): $($row.status) - $($row.reason -replace '[\r\n]+',' ')" }
+    $lines+='Product review: inspect the bilingual minimum-window screenshots for legibility and preferred spacing. Automated geometry does not decide visual preference.'
+    $screens=@(Get-ChildItem -LiteralPath (Join-Path $Directory 'screenshots') -Filter '*.png' -Recurse -ErrorAction SilentlyContinue | Sort-Object @{Expression={if($_.Name -match 'preview.*860|skills-en-860|favorite-pending|restart|detail-en-860'){0}else{1}}},Name | Select-Object -First 6)
+    if ($screens.Count) { $lines+=@('', 'Key screenshots:'); foreach($shot in $screens){$relative=$shot.FullName.Substring($Directory.Length+1).Replace('\','/');$lines+="- [$($shot.Name)]($relative)"} }
+    $lines += @('', 'See acceptance.json for complete timestamps and evidence. Unrun/blocked scenarios are not passed. This command never publishes a release.')
     [IO.File]::WriteAllLines((Join-Path $Directory 'acceptance.md'), [string[]]$lines, (New-Object Text.UTF8Encoding($false)))
 }
