@@ -88,6 +88,7 @@ try {
         if($record.exitCode -ne 2){throw 'Missing required scenario was accepted'}
         $written=Get-Content "$dir/acceptance.json" -Raw|ConvertFrom-Json
         if($written.status -ne 'incomplete' -or $written.requiredScenarios -notcontains 'missing'){throw 'Missing requirement was lost in report'}
+        if(-not([IO.File]::ReadAllText("$dir/acceptance.md")).Contains('missing: not-run')){throw 'Summary concealed the missing scenario'}
     }
     Check 'Timed-out process is failed and terminated, never successful' {
         Reject { Invoke-AcceptanceTimedProcess 'pwsh' @('-NoProfile','-Command','Start-Sleep -Seconds 30') "$root/timeout.log" 1 }
