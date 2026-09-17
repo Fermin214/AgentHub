@@ -78,7 +78,13 @@ try {
  }
  Write-AcceptanceJson @{runtime=$runtime;backup=$backup;clients=$registrySaved;candidate=$report.installerSha256} "$root/recovery-journal.json"
  Stop-RuntimeSearch
- Move-Item -LiteralPath $runtime -Destination $backup;$moved=$true
+ # Process exit can precede release of runtime image handles. Retry briefly;
+ # never remove a file, change ACLs, or stop an unrecognized owner to force it.
+ $moveDeadline=[DateTime]::UtcNow.AddSeconds(5)
+ do{
+  try{Move-Item -LiteralPath $runtime -Destination $backup;$moved=$true;break}
+  catch{if([DateTime]::UtcNow -ge $moveDeadline){throw};Start-Sleep -Milliseconds 250;Stop-RuntimeSearch}
+ }while(-not $moved)
  foreach($entry in $registrySaved){if($entry.exists){Remove-Item -LiteralPath $entry.provider -Recurse}}
  if((Test-Path -LiteralPath $runtime) -or @($clients|Where-Object {Test-Path -LiteralPath $_.provider}).Count){throw 'Runtime isolation incomplete'}
  $portable=Join-Path $root 'portable';Expand-Archive -LiteralPath $PortableZip -DestinationPath $portable

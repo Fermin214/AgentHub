@@ -15,7 +15,10 @@ function Close-App {
  $script:app=$null
 }
 function Launch-App {
- $script:app=Start-Process -FilePath $exe -WorkingDirectory "$root/portable" -WindowStyle Normal -PassThru
+ $info=New-Object Diagnostics.ProcessStartInfo($exe)
+ $info.UseShellExecute=$false;$info.WorkingDirectory="$root/portable"
+ foreach($name in @('AGENTHUB_DATA_DIR','WEBVIEW2_USER_DATA_FOLDER','WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS')){$info.EnvironmentVariables[$name]=[Environment]::GetEnvironmentVariable($name,'Process')}
+ $script:app=[Diagnostics.Process]::Start($info)
  $deadline=[DateTime]::UtcNow.AddSeconds(40)
  do{
   if($app.HasExited){throw 'Packaged app exited before endpoint ready'}
@@ -29,6 +32,7 @@ function Launch-App {
    return
   }catch{$last=$_.ToString();Start-Sleep -Milliseconds 250}
  }while([DateTime]::UtcNow -lt $deadline)
+ Write-AcceptanceJson @(Get-CimInstance Win32_Process|Where-Object {$_.ProcessId -eq $app.Id -or ($_.Name -eq 'msedgewebview2.exe' -and $_.CommandLine -and $_.CommandLine.Contains($root))}|Select-Object Name,ProcessId,ParentProcessId,CommandLine) "$root/endpoint-processes.json"
  throw "Packaged endpoint unavailable: $last"
 }
 function Run-Phase([string]$Phase){
