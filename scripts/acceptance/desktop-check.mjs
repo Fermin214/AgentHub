@@ -3,7 +3,7 @@ import { chromium } from 'playwright-core';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import assert from 'node:assert/strict';
-import { layout } from './desktop-layout.mjs';
+import { layout, headerReview } from './desktop-layout.mjs';
 import { favorites } from './desktop-favorites.mjs';
 import { installFaults } from './desktop-faults.mjs';
 
@@ -34,6 +34,9 @@ try {
     const [width, height] = phase.slice(7).split('x').map(Number);
     await page.waitForFunction(({ width, height }) => innerWidth === width && innerHeight === height, { width, height });
     result = await layout(page, path.join(evidence, 'screenshots'));
+  } else if (phase === 'header-review') {
+    assert.equal(snapshot.skills.find(skill => skill.name === 'acceptance-second').source.kind, 'git');
+    result = await headerReview(page, path.join(evidence, 'screenshots'));
   } else if (phase === 'favorites') {
     await page.evaluate(installFaults, dataDir);
     result = await favorites(page, path.join(evidence, 'screenshots'));
@@ -44,14 +47,14 @@ try {
     assert.equal(snapshot.skills.find(skill => skill.name === 'acceptance-writer').favorite, true);
     assert.equal(snapshot.skills.find(skill => skill.name === 'acceptance-second').favorite, false);
     assert.equal(await page.evaluate(() => Boolean(window.__acceptanceFaults)), false);
-    await page.screenshot({ path: path.join(evidence, 'screenshots/native-restart.png') });
+    await page.screenshot({animations: 'disabled', path: path.join(evidence, 'screenshots/native-restart.png') });
     result = { persisted: true, injectionAbsent: true, dataDir: snapshot.dataDir };
   } else throw new Error('Unknown phase');
   await fs.writeFile(path.join(evidence, `${phase}.json`), JSON.stringify(result, null, 2));
   console.log(JSON.stringify({ phase, status: 'passed', result }));
 } catch (error) {
   if (page) console.error('WEBVIEW DOM', await page.evaluate(() => ({ url: location.href, ready: document.readyState, body: document.body?.innerText, html: document.documentElement.outerHTML.slice(0, 4000) })).catch(String));
-  if (page) await page.screenshot({ path: path.join(evidence, `screenshots/failed-${phase}.png`) }).catch(() => {});
+  if (page) await page.screenshot({animations: 'disabled', path: path.join(evidence, `screenshots/failed-${phase}.png`) }).catch(() => {});
   throw error;
 } finally {
   // For CDP, close disconnects this client; desktop.ps1 owns app shutdown.

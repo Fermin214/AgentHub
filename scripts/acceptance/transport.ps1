@@ -10,6 +10,7 @@ function Invoke-VmCommand([string]$Target, [string]$Code, [switch]$ReadOnly) {
     return ($output -join "`n")
 }
 function Assert-VmSshTarget([string]$Target) {
+    if ($Target -ceq 'agenthub-vm') { return }
     if ($Target -notmatch '^(?:TEST\\)?Try@[a-zA-Z0-9][a-zA-Z0-9.-]+$') { throw 'sshTarget must be Try@hostname or TEST\Try@hostname (no options or shell syntax)' }
 }
 function Invoke-AcceptanceVm($Config, [string]$Evidence, [string]$RunId, [string]$Candidate, [string]$BaseVersion) {
@@ -26,9 +27,16 @@ function Invoke-AcceptanceVm($Config, [string]$Evidence, [string]$RunId, [string
     Copy-Item -LiteralPath ([IO.Path]::GetFullPath($Config.cliPath)) -Destination "$stage/helpers/candidate-cli.exe"
     $job = @{runId=$RunId; taskName="AgentHub-Acceptance-$RunId"; candidate=$proof; cliSha256=(Get-FileHash -LiteralPath "$stage/helpers/candidate-cli.exe").Hash; baseVersion=$BaseVersion; hasBase=$false}
     $job.allowRuntimeIsolation=($Config.allowRuntimeIsolation -is [bool] -and $Config.allowRuntimeIsolation)
+    $job.browserDownload=[bool]$Config.browserUrlFile
+    if($job.browserDownload){
+        Copy-Item -LiteralPath ([IO.Path]::GetFullPath($Config.browserUrlFile)) -Destination "$stage/private-download-url.txt"
+        Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'browser.ps1') -Destination "$stage/scripts/acceptance/browser.ps1"
+    }
     $job.packagedUi=($Config.packagedUi -is [bool] -and $Config.packagedUi)
+    $job.headerReviewOnly=($Config.headerReviewOnly -is [bool] -and $Config.headerReviewOnly)
+    if($job.headerReviewOnly -and -not $job.packagedUi){throw 'headerReviewOnly requires packagedUi'}
     if($job.packagedUi){
-        foreach($name in @('packaged.ps1','desktop-fixture.ps1','desktop-check.mjs','desktop-layout.mjs','desktop-favorites.mjs','desktop-faults.mjs')){Copy-Item -LiteralPath (Join-Path $PSScriptRoot $name) -Destination "$stage/scripts/acceptance/$name"}
+        foreach($name in @('packaged.ps1','desktop-fixture.ps1','desktop-source-fixture.mjs','desktop-check.mjs','desktop-layout.mjs','desktop-favorites.mjs','desktop-faults.mjs')){Copy-Item -LiteralPath (Join-Path $PSScriptRoot $name) -Destination "$stage/scripts/acceptance/$name"}
         New-Item -ItemType Directory -Path "$stage/scripts/acceptance/node_modules"|Out-Null
         $node=(Get-Command node -ErrorAction Stop).Source
         Copy-Item -LiteralPath $node -Destination "$stage/helpers/node.exe"
@@ -97,6 +105,7 @@ Start-ScheduledTask -TaskName $task
         if ($started) { Write-AcceptanceJson @{status='failed';error=('Remote completion or cleanup could not be verified: '+$_.ToString());remote=$remote} "$Evidence/transport-cleanup.json" }
         throw
     } finally {
+        if($completed -and (Test-Path -LiteralPath "$stage/private-download-url.txt")){Remove-Item -LiteralPath (Assert-AcceptancePath "$stage/private-download-url.txt" $stage)}
         if ($prepared -and -not $started) {
             # If task creation partially succeeded, preserve state for review instead of stopping it.
             $rollback = @'

@@ -23,6 +23,8 @@ Startup dependency errors use the Windows UI language before opening the setting
 
 ## browser-download-startup
 
+With `browserUrlFile` configured and the interactive VM ready, the existing Release worker automates this scenario; see [acceptance automation](acceptance-automation.md). Use the steps below for manual execution or observations the adapter cannot complete. Missing prerequisites and policy blocks must remain visible in the report, never recorded as passed.
+
 1. Open Edge in the VM using a fresh profile and dedicated download directory. Use the actual CI artifact or public release download URL; a CLI download is insufficient. Record the URL without preserving expiring signed query credentials.
 2. Download the candidate installer and portable ZIP; compare their SHA256 to the accepted candidate. If an outer CI ZIP is downloaded, extract with Explorer and compare the inner distribution bytes.
 3. Record `Zone.Identifier` / Mark of the Web and all browser, publisher, SmartScreen or device-policy prompts. The operator may approve a prompt only after confirming the expected filename/hash. Never use `Unblock-File`, turn off reputation checks or hide a policy block.

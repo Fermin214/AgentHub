@@ -128,7 +128,7 @@ try {
  $portable=Join-Path $root 'portable';Expand-Archive -LiteralPath $PortableZip -DestinationPath $portable
  $env:WEBVIEW2_USER_DATA_FOLDER=Join-Path $root 'webview'
  $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS='--force-renderer-accessibility'
- $app=Start-Process -FilePath "$portable/AgentHub.exe" -WorkingDirectory $portable -WindowStyle Hidden -PassThru
+ $app=Start-Process -FilePath "$portable/AgentHub.exe" -WorkingDirectory $portable -WindowStyle Normal -PassThru
  [void]$app.WaitForExit(7000)
  $report.portableMissing=@{exited=$app.HasExited;exitCode=$(if($app.HasExited){$app.ExitCode}else{$null});ui=@(Capture $app 'portable-missing')}
  if($report.portableMissing.ui -contains 'Prompts'){throw 'Portable unexpectedly rendered without the isolated runtime'}
@@ -155,7 +155,11 @@ try {
   $elements=@($window.FindAll([Windows.Automation.TreeScope]::Descendants,[Windows.Automation.Condition]::TrueCondition))
   $text=($elements|ForEach-Object {$_.Current.Name}) -join ' '
   if($text -match '(?i)download.*(failed|error)|error.*download|installation aborted'){$failure=$true;break}
-  foreach($button in @($elements|Where-Object {$_.Current.ControlType -eq [Windows.Automation.ControlType]::Button -and $_.Current.IsEnabled -and $_.Current.Name -match '^(Next|Install|I Agree|&Next|&Install)'})){$button.GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern).Invoke();break}
+  $buttons=@($elements|Where-Object {$_.Current.IsEnabled -and $_.Current.Name -match '^(Next|Install|I Agree|&Next|&Install)' -and $_.Current.NativeWindowHandle -ne 0})
+  if($buttons.Count -eq 1){
+   $report.lastInstallerAction=@{name=$buttons[0].Current.Name;id=$buttons[0].Current.AutomationId;type=$buttons[0].Current.ControlType.ProgrammaticName};Save
+   if(-not [RuntimeCapture]::PostMessage([IntPtr]$buttons[0].Current.NativeWindowHandle,245,[IntPtr]::Zero,[IntPtr]::Zero)){throw 'Cannot click observed installer control'}
+  }
  }while([DateTime]::UtcNow -lt $deadline)
  $report.downloadFailureUi=@(Capture $installerProcess 'download-failure')
  if(-not $failure){throw 'Did not capture explicit runtime download failure'}
