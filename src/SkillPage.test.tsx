@@ -168,6 +168,7 @@ it('round-trips favorite, unfavorite and favorite again after confirmation',asyn
   const undo=screen.getByRole('button',{name:'取消收藏 Writer'});
   expect(undo).toBeEnabled();
   fireEvent.click(undo);
+  expect(saves.map(save=>save.favorite)).toEqual([true,false]);
   await act(async()=>settle(1));
   expect(screen.getByRole('button',{name:'收藏 Writer'})).toBeEnabled();
   fireEvent.click(screen.getByRole('button',{name:'收藏 Writer'}));
@@ -328,6 +329,17 @@ it('recovers a rejected favorite save without corrupting the visible state',asyn
   expect(saves[1]).toMatchObject({ids:['s'],favorite:true});
   await act(async()=>saves[1].resolve({skills:[{...snapshot.skills[0],favorite:true}]}));
   expect(screen.getByRole('button',{name:'取消收藏 Writer'})).toBeEnabled();
+});
+it('does not claim saved when both save and refresh reject',async()=>{
+  const {saves}=favoriteDispatch();
+  const notify=vi.fn();
+  const refresh=vi.fn().mockRejectedValue(new Error('snapshot unavailable'));
+  render(<SkillPage snapshot={snapshot} refresh={refresh} notify={notify} onProject={vi.fn()}/>);
+  fireEvent.click(await screen.findByRole('button',{name:'收藏 Writer'}));
+  await act(async()=>saves[0].reject(new Error('save rejected')));
+  expect(screen.getByRole('alert')).toHaveTextContent('save rejected');
+  expect(screen.getByRole('button',{name:'收藏 Writer'})).toBeEnabled();
+  expect(notify.mock.calls.some(([message])=>/收藏已保存|favorite was saved/i.test(message))).toBe(false);
 });
 it('still saves a favorite while another Skill check is in flight',async()=>{
   let finishCheck!:(v:unknown)=>void;

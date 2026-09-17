@@ -578,3 +578,30 @@ fn zip_wrapper_with_multiple_skills_has_the_same_inspection_contract() {
     assert_eq!(inspected["candidates"].as_array().unwrap().len(), 2);
     assert_eq!(add(&store, &inspected, "skills/two")["name"], "Two");
 }
+
+#[test]
+fn metadata_returns_only_requested_records_and_preserves_unrelated_fields() {
+    let temp = tempfile::tempdir().unwrap();
+    let store = Store::open(&temp.path().join("data")).unwrap();
+    let source = temp.path().join("source");
+    write_skill(&source.join("one"), "one", "fictional");
+    write_skill(&source.join("two"), "two", "fictional");
+    let inspection = inspect(&store, &source);
+    let first = add(&store, &inspection, "one");
+    let second = add(&store, &inspection, "two");
+    let save = |args: Value| skills::dispatch(&store, "skills.metadata.save", &args).unwrap();
+    let tags = save(json!({"ids":[first["id"]],"tags":[" kept ","kept",""]}));
+    assert_eq!(tags["skills"].as_array().unwrap().len(), 1);
+    assert_eq!(tags["skills"][0]["id"], first["id"]);
+    assert_eq!(tags["skills"][0]["tags"], json!(["kept"]));
+    assert_eq!(tags["skills"][0]["favorite"], false);
+    let favorite = save(json!({"ids":[first["id"]],"favorite":true}));
+    assert_eq!(favorite["skills"].as_array().unwrap().len(), 1);
+    assert_eq!(favorite["skills"][0]["tags"], json!(["kept"]));
+    let retag = save(json!({"ids":[first["id"]],"tags":["new"]}));
+    assert_eq!(retag["skills"][0]["favorite"], true);
+    let unrelated = save(json!({"ids":[second["id"]]}));
+    assert_eq!(unrelated["skills"][0]["tags"], json!([]));
+    assert_eq!(unrelated["skills"][0]["favorite"], false);
+    assert!(skills::dispatch(&store, "skills.metadata.save", &json!({"ids":[first["id"]],"favorite":"true"})).is_err());
+}

@@ -134,3 +134,32 @@ test('a saved Prompt stays in the list under the prompts.save contract', async (
   await expect(page.getByRole('dialog')).toHaveCount(0);
   await expect(page.getByRole('button', { name: '查看 新建的预览正文', exact: true })).toBeVisible();
 });
+
+// Cross-check the semantics independently exercised by Rust's
+// metadata_returns_only_requested_records_and_preserves_unrelated_fields.
+test('IPC fixture follows real partial metadata and Prompt return contracts', async ({ page }) => {
+  await page.goto('/tests/ui/index.html');
+  const result = await page.evaluate(async () => {
+    const call = (method, args = {}) => window.__TAURI_INTERNALS__.invoke('dispatch', { method, args });
+    const before = await call('snapshot');
+    const id = before.skills[0].id;
+    const tags = await call('skills.metadata.save', { ids: [id], tags: [' kept ', 'kept', ''] });
+    const favorite = await call('skills.metadata.save', { ids: [id], favorite: false });
+    const retag = await call('skills.metadata.save', { ids: [id], tags: ['new'] });
+    let rejected = false;
+    try { await call('skills.metadata.save', { ids: [id], favorite: 'true' }); } catch { rejected = true; }
+    const prompt = await call('prompts.save', { prompt: { title: 'Contract', body: 'Fictional', tags: [], favorite: false } });
+    const after = await call('snapshot');
+    return { tags, favorite, retag, prompt, rejected, unrelatedBefore: before.skills[1], unrelatedAfter: after.skills[1] };
+  });
+  expect(result.tags.skills).toHaveLength(1);
+  expect(result.tags.skills[0].tags).toEqual(['kept']);
+  expect(result.favorite.skills).toHaveLength(1);
+  expect(result.favorite.skills[0]).toMatchObject({ tags: ['kept'], favorite: false });
+  expect(result.retag.skills[0]).toMatchObject({ tags: ['new'], favorite: false });
+  expect(result.unrelatedAfter).toEqual(result.unrelatedBefore);
+  expect(result.rejected).toBe(true);
+  expect(result.prompt).toMatchObject({ id: expect.any(String), title: 'Contract', updatedAt: expect.any(String) });
+  expect(result.prompt).not.toHaveProperty('prompts');
+  expect(result.prompt).not.toHaveProperty('skills');
+});
