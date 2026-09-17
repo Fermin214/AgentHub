@@ -110,8 +110,8 @@ function Write-AcceptanceReport($Report, [string]$Directory) {
     $missing=@($Report.requiredScenarios | Where-Object { $_ -notin @($Report.scenarios.id) })
     if ($Report.exitCode -eq 0) { $lines+='No automated blockers in this selected profile.' }
     if (-not @($Report.scenarios).Count) { $lines+='No scenarios executed; acceptance is incomplete.' }
-    foreach($id in $missing){$lines+="- ${id}: not-run — required result missing"}
-    foreach ($row in $pending) { $lines+="- $($row.id): $($row.status) — $($row.reason -replace '[\r\n]+',' ')" }
+    foreach($id in $missing){$lines+="- ${id}: not-run - required result missing"}
+    foreach ($row in $pending) { $lines+="- $($row.id): $($row.status) - $($row.reason -replace '[\r\n]+',' ')" }
     $lines+='Product review: inspect the bilingual minimum-window screenshots for legibility and preferred spacing. Automated geometry does not decide visual preference.'
     $screens=@(Get-ChildItem -LiteralPath (Join-Path $Directory 'screenshots') -Filter '*.png' -Recurse -ErrorAction SilentlyContinue | Sort-Object @{Expression={if($_.Name -match 'preview.*860|skills-en-860|favorite-pending|restart|detail-en-860'){0}else{1}}},Name | Select-Object -First 6)
     if ($screens.Count) { $lines+=@('', 'Key screenshots:'); foreach($shot in $screens){$relative=$shot.FullName.Substring($Directory.Length+1).Replace('\','/');$lines+="- [$($shot.Name)]($relative)"} }

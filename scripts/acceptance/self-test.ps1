@@ -12,6 +12,10 @@ function Check([string]$Name,[scriptblock]$Action) {
 }
 function Reject([scriptblock]$Action) { $rejected=$false;try{& $Action | Out-Null}catch{$rejected=$true};if(-not $rejected){throw 'Expected rejection'} }
 try {
+    Check 'Windows PowerShell 5.1 parses the native loading chain under Western ANSI' {
+        $code=Invoke-AcceptanceProcess 'powershell.exe' @('-NoProfile','-File',"$project/scripts/acceptance/ps51-compatibility.ps1") "$root/ps51-compatibility.log"
+        if($code -ne 0){throw "Windows PowerShell 5.1 encoding regression; see $root/ps51-compatibility.log"}
+    }
     Check 'Containment rejects siblings and traversal' {
         Reject { Assert-AcceptancePath "$root/../outside" $root }
         Reject { Assert-AcceptancePath ($root+'-other/file') $root }
@@ -47,7 +51,7 @@ try {
     if($env:COMPUTERNAME -ne 'TEST' -or $env:USERNAME -ne 'Try') {
         Check 'Native release entry refuses the development host before opening inputs' {
             $code=Invoke-AcceptanceProcess 'powershell.exe' @('-NoProfile','-File',"$project/scripts/verify-windows-vm.ps1",'-Case','self-test-refusal','-Installer','does-not-exist.exe','-Cli','does-not-exist.exe') "$root/host-refusal.log"
-            if($code -eq 0 -or -not ([IO.File]::ReadAllText("$root/host-refusal.log")).Contains('Requires TEST/Try interactive disposable VM desktop')){throw 'Host safety guard was not reached before input use'}
+            if($code -ne 1 -or -not ([IO.File]::ReadAllText("$root/host-refusal.log")).Contains('Requires TEST/Try interactive disposable VM desktop')){throw 'Host safety guard was not reached before input use'}
         }
     }
     $files=@()
