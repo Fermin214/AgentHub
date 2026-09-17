@@ -11,7 +11,7 @@ export async function favorites(page, evidence) {
  await page.mouse.click(rect.x+rect.width/2,rect.y+rect.height/2,{clickCount:3});
  const pending=await page.evaluate(()=>({calls:__acceptanceFaults.calls.length,controls:[...document.querySelectorAll('.skill-row button,.page-header button')].filter(b=>!b.dataset.favoritePending).every(b=>!b.disabled&&getComputedStyle(b).opacity==='1'),cursor:getComputedStyle(document.querySelector('[data-favorite-pending]')).cursor}));
  assert(pending.calls===1&&pending.controls&&pending.cursor==='pointer','Pending isolation/deduplication');
- await page.screenshot({path:evidence+'/native-favorite-pending.png'});
+ await page.screenshot({animations: 'disabled',path:evidence+'/native-favorite-pending.png'});
  await page.waitForFunction(()=>!document.querySelector('[data-favorite-pending]'));
  assert((await star(writer).getAttribute('aria-label')).startsWith('Remove'),'Save did not commit');
  await page.evaluate(()=>{__acceptanceFaults.delayMs=0;});
@@ -25,7 +25,7 @@ export async function favorites(page, evidence) {
  await star(second).click();
  await page.getByRole('alert').filter({hasText:'ACCEPTANCE_INJECTED: favorite save rejected'}).waitFor();
  assert(await star(second).isEnabled()&&(await star(second).getAttribute('aria-label'))==='Add acceptance-second to favorites','Failure not restored');
- await page.screenshot({path:evidence+'/native-favorite-rejected.png'});
+ await page.screenshot({animations: 'disabled',path:evidence+'/native-favorite-rejected.png'});
  await star(second).click();
  await page.waitForFunction(()=>[...document.querySelectorAll('.library-actions>button')].some(b=>b.getAttribute('aria-label')==='Remove acceptance-second from favorites'));
  await page.evaluate(()=>{__acceptanceFaults.failRefreshOnce=true;});

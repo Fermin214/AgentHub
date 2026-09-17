@@ -84,6 +84,7 @@ function Invoke-AcceptanceTimedProcess([string]$Executable, [string[]]$Arguments
 }
 function Assert-NativeAcceptanceResult($Record, [int]$ExitCode, [string]$Case, [switch]$ExpectedFailure) {
     if ($Record.case -ne $Case) { throw 'Native evidence case ID mismatch' }
+    if ($Record.cleanup.status -ne 'passed') { throw 'Native cleanup failed or was not verified' }
     if ($ExpectedFailure) {
         if ($ExitCode -eq 0 -or $Record.status -ne 'failed' -or $Record.error -ne 'ACCEPTANCE_EXPECTED_FAILURE_AFTER_INSTALL' -or $Record.cleanup.status -ne 'passed') { throw 'Expected controlled failure with successful finally cleanup' }
     } elseif ($ExitCode -ne 0 -or $Record.status -ne 'passed') { throw "Native scenario did not pass (exit $ExitCode)" }

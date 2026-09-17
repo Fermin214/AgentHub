@@ -12,6 +12,10 @@ function Check([string]$Name,[scriptblock]$Action) {
 }
 function Reject([scriptblock]$Action) { $rejected=$false;try{& $Action | Out-Null}catch{$rejected=$true};if(-not $rejected){throw 'Expected rejection'} }
 try {
+    Check 'Browser download adapter refuses the host before reading private inputs' {
+        $code=Invoke-AcceptanceProcess 'powershell.exe' @('-NoProfile','-File',"$project/scripts/acceptance/browser.ps1",'-CandidatePath','missing','-UrlFile','missing','-Case','host-refusal') "$root/browser-refusal.log"
+        if($code -ne 1 -or -not ([IO.File]::ReadAllText("$root/browser-refusal.log")).Contains('Requires TEST/Try interactive disposable VM desktop')){throw 'Browser adapter did not reach the host guard'}
+    }
     Check 'Startup dialog probe refuses the development host before input access' {
         $code=Invoke-AcceptanceProcess 'powershell.exe' @('-NoProfile','-File',"$project/scripts/acceptance/startup-dialog.ps1",'-Executable','missing.exe','-Sha256','unused','-Language','zh','-Case','host-refusal') "$root/startup-refusal.log"
         if($code -ne 1 -or -not ([IO.File]::ReadAllText("$root/startup-refusal.log")).Contains('Requires TEST/Try interactive disposable VM desktop')){throw 'Startup probe did not reach the host guard'}
@@ -63,6 +67,14 @@ try {
         $record.cleanup.status='passed';$record.error='unexpected failure'
         Reject { Assert-NativeAcceptanceResult $record 1 'fixture' -ExpectedFailure }
         Reject { Assert-NativeAcceptanceResult $record 1 'fixture' }
+    }
+    Check 'Successful native exit cannot hide failed or missing cleanup' {
+        $record=@{case='fixture';status='passed';cleanup=@{status='failed'}}
+        Reject { Assert-NativeAcceptanceResult $record 0 'fixture' }
+        $record.cleanup=@{}
+        Reject { Assert-NativeAcceptanceResult $record 0 'fixture' }
+        $record.cleanup.status='passed'
+        Assert-NativeAcceptanceResult $record 0 'fixture'
     }
     if($env:COMPUTERNAME -ne 'TEST' -or $env:USERNAME -ne 'Try') {
         Check 'Native release entry refuses the development host before opening inputs' {

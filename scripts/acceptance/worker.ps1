@@ -8,11 +8,13 @@ $evidence=Join-Path $runRoot 'evidence'
 New-Item -ItemType Directory -Path $evidence,"$evidence/logs","$evidence/screenshots" | Out-Null
 $result=[ordered]@{scenarios=@();cleanup=@{status='failed';reason='Worker has not finished restoration'}}
 $baseline=$null
+$cleanupFailures=New-Object 'System.Collections.Generic.List[string]'
 $start=[DateTime]::UtcNow.ToString('o')
 function Run-VmScenario([string]$Id,[string]$Script,$Arguments,[switch]$ExpectedFailure,[switch]$Limited) {
     $began=[DateTime]::UtcNow.ToString('o')
     $case=$job.runId+'-'+$Id
     $log="$evidence/logs/$Id.log"
+    $record=$null
     try {
         if($Limited){
             # WebView2 ignores environment browser flags in an elevated host.
@@ -57,6 +59,9 @@ try {
         $result.scenarios+=New-AcceptanceResult $Id 'passed' $reason $began @("vm/$Id.json","vm/logs/$Id.log")
     } catch { $result.scenarios+=New-AcceptanceResult $Id 'failed' $_.ToString() $began @("vm/logs/$Id.log") }
     finally {
+        if(-not $record -or $record.cleanup.status -ne 'passed') {
+            $cleanupFailures.Add("$Id cleanup failed or was not verified; preserve VM lock for recovery")
+        }
         $caseRoot=Assert-AcceptancePath "C:\AgentHub-VM-Test\cases\$case" 'C:\AgentHub-VM-Test\cases'
         $source="C:\AgentHub-VM-Test\evidence\$case.json"
         if (Test-Path -LiteralPath $source) { Copy-Item -LiteralPath $source -Destination "$evidence/$Id.json" }
@@ -68,6 +73,7 @@ try {
         }
     }
     # Do not enter the next system-changing case if cleanup failed.
+    if($cleanupFailures.Count){throw ($cleanupFailures -join '; ')}
     Assert-CleanTestInstallation
     Write-AcceptanceJson $result "$evidence/progress.json"
 }
@@ -102,9 +108,13 @@ try {
         $missingStatus=if($runtimeReport.missingPassed -and $runtimeReport.cleanup.status -eq 'passed'){'passed'}else{'failed'}
         $result.scenarios+=New-AcceptanceResult 'webview-missing' $missingStatus 'Operator-authorized runtime isolation; see missing-runtime and download UI evidence' $start @('vm/webview-download-failure-recovery.json')
     }
+    if($job.browserDownload -eq $true){
+        Run-VmScenario 'browser-download-startup' "$PSScriptRoot/browser.ps1" @('-CandidatePath',"$runRoot/candidate",'-UrlFile',"$runRoot/private-download-url.txt") -Limited
+    }
 } catch { $result.scenarios+=New-AcceptanceResult 'vm-worker' 'failed' ($_.ToString()+' '+$_.ScriptStackTrace) $start }
 finally {
-    $errors=@()
+    $errors=@($cleanupFailures.ToArray())
+    try{if(Test-Path -LiteralPath "$runRoot/private-download-url.txt"){Remove-Item -LiteralPath (Assert-AcceptancePath "$runRoot/private-download-url.txt" $runRoot)}}catch{$errors+=$_.ToString()}
     try {
         if(Get-ScheduledTask -TaskName ($job.taskName+'-*') -ErrorAction SilentlyContinue){throw 'Interactive child task remains; preserve VM lock'}
         $after=Get-TestMachineState
