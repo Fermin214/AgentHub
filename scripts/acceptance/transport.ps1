@@ -10,6 +10,7 @@ function Invoke-VmCommand([string]$Target, [string]$Code, [switch]$ReadOnly) {
     return ($output -join "`n")
 }
 function Assert-VmSshTarget([string]$Target) {
+    if ($Target -ceq 'agenthub-vm') { return }
     if ($Target -notmatch '^(?:TEST\\)?Try@[a-zA-Z0-9][a-zA-Z0-9.-]+$') { throw 'sshTarget must be Try@hostname or TEST\Try@hostname (no options or shell syntax)' }
 }
 function Invoke-AcceptanceVm($Config, [string]$Evidence, [string]$RunId, [string]$Candidate, [string]$BaseVersion) {
@@ -32,8 +33,10 @@ function Invoke-AcceptanceVm($Config, [string]$Evidence, [string]$RunId, [string
         Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'browser.ps1') -Destination "$stage/scripts/acceptance/browser.ps1"
     }
     $job.packagedUi=($Config.packagedUi -is [bool] -and $Config.packagedUi)
+    $job.headerReviewOnly=($Config.headerReviewOnly -is [bool] -and $Config.headerReviewOnly)
+    if($job.headerReviewOnly -and -not $job.packagedUi){throw 'headerReviewOnly requires packagedUi'}
     if($job.packagedUi){
-        foreach($name in @('packaged.ps1','desktop-fixture.ps1','desktop-check.mjs','desktop-layout.mjs','desktop-favorites.mjs','desktop-faults.mjs')){Copy-Item -LiteralPath (Join-Path $PSScriptRoot $name) -Destination "$stage/scripts/acceptance/$name"}
+        foreach($name in @('packaged.ps1','desktop-fixture.ps1','desktop-source-fixture.mjs','desktop-check.mjs','desktop-layout.mjs','desktop-favorites.mjs','desktop-faults.mjs')){Copy-Item -LiteralPath (Join-Path $PSScriptRoot $name) -Destination "$stage/scripts/acceptance/$name"}
         New-Item -ItemType Directory -Path "$stage/scripts/acceptance/node_modules"|Out-Null
         $node=(Get-Command node -ErrorAction Stop).Source
         Copy-Item -LiteralPath $node -Destination "$stage/helpers/node.exe"

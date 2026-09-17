@@ -1,4 +1,4 @@
-param([Parameter(Mandatory=$true)][string]$PortableZip,[Parameter(Mandatory=$true)][string]$Cli,[Parameter(Mandatory=$true)][string]$Node,[Parameter(Mandatory=$true)][string]$Case,[Parameter(Mandatory=$true)][string]$DesktopSha256)
+param([Parameter(Mandatory=$true)][string]$PortableZip,[Parameter(Mandatory=$true)][string]$Cli,[Parameter(Mandatory=$true)][string]$Node,[Parameter(Mandatory=$true)][string]$Case,[Parameter(Mandatory=$true)][string]$DesktopSha256,[switch]$HeaderReview)
 $ErrorActionPreference='Stop'
 . (Join-Path $PSScriptRoot 'vm-safety.ps1')
 Assert-TestDesktop
@@ -48,6 +48,11 @@ try{
  $fixture="$root/fixture"
  $code=Invoke-AcceptanceProcess 'powershell.exe' @('-NoProfile','-File',"$PSScriptRoot/desktop-fixture.ps1",'-Cli',$Cli,'-CaseRoot',$fixture) "$root/logs/fixture.log"
  if($code -ne 0){throw 'Real Rust fixture creation failed'}
+ if($HeaderReview){
+  $code=Invoke-AcceptanceProcess $Node @("$PSScriptRoot/desktop-source-fixture.mjs",$fixture) "$root/logs/source-fixture.log"
+  if($code -ne 0){throw 'Fictional source metadata fixture failed'}
+  $report.layer='Exact CI portable / native header review; fictional remote metadata, no Git network acceptance'
+ }
  $reservation=New-Object Net.Sockets.TcpListener([Net.IPAddress]::Loopback,0);$reservation.Start();$port=$reservation.LocalEndpoint.Port;$reservation.Stop()
  $env:AGENTHUB_DATA_DIR="$fixture/data";$env:WEBVIEW2_USER_DATA_FOLDER="$fixture/webview"
  $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS="--remote-debugging-port=$port --remote-debugging-address=127.0.0.1"
@@ -61,16 +66,20 @@ public class PackagedWindow {
 }
 '@
  Launch-App
- foreach($size in @(@(1280,860),@(860,640))){
+ $sizes=@(@(1280,860),@(860,640))
+ if($HeaderReview){$sizes=,@(860,640)}
+ foreach($size in $sizes){
   $app.Refresh();$client=New-Object PackagedWindow+Rect;$outer=New-Object PackagedWindow+Rect
   if(-not [PackagedWindow]::GetClientRect($app.MainWindowHandle,[ref]$client) -or -not [PackagedWindow]::GetWindowRect($app.MainWindowHandle,[ref]$outer)){throw 'Window bounds unavailable'}
   if(-not [PackagedWindow]::SetWindowPos($app.MainWindowHandle,[IntPtr]::Zero,0,0,$size[0]+$outer.Right-$outer.Left-$client.Right+$client.Left,$size[1]+$outer.Bottom-$outer.Top-$client.Bottom+$client.Top,6)){throw 'Window resize failed'}
-  Run-Phase "layout-$($size[0])x$($size[1])"
+  if($HeaderReview){Run-Phase 'header-review'}else{Run-Phase "layout-$($size[0])x$($size[1])"}
  }
- Run-Phase 'favorites'
- Close-App
- Launch-App
- Run-Phase 'restart'
+ if(-not $HeaderReview){
+  Run-Phase 'favorites'
+  Close-App
+  Launch-App
+  Run-Phase 'restart'
+ }
  $report.status='passed'
 }catch{$report.status='failed';$report.error=$_.ToString();$report.stack=$_.ScriptStackTrace}
 finally{

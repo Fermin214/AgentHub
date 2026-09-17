@@ -24,6 +24,8 @@ try {
         . (Join-Path $PSScriptRoot 'transport.ps1')
         Assert-VmSshTarget 'Try@192.168.1.2'
         Assert-VmSshTarget 'TEST\Try@test-vm'
+        Assert-VmSshTarget 'agenthub-vm'
+        Reject { Assert-VmSshTarget 'agenthub-vm -oStrictHostKeyChecking=no' }
         foreach($invalid in @('OTHER\Try@test-vm','TEST\Admin@test-vm','-oProxyCommand=cmd','Try@test;whoami','Try@test vm')){Reject { Assert-VmSshTarget $invalid }}
     }
     Check 'Windows PowerShell 5.1 parses the native loading chain under Western ANSI' {

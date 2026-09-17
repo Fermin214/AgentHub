@@ -3,7 +3,7 @@ import { chromium } from 'playwright-core';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import assert from 'node:assert/strict';
-import { layout } from './desktop-layout.mjs';
+import { layout, headerReview } from './desktop-layout.mjs';
 import { favorites } from './desktop-favorites.mjs';
 import { installFaults } from './desktop-faults.mjs';
 
@@ -34,6 +34,9 @@ try {
     const [width, height] = phase.slice(7).split('x').map(Number);
     await page.waitForFunction(({ width, height }) => innerWidth === width && innerHeight === height, { width, height });
     result = await layout(page, path.join(evidence, 'screenshots'));
+  } else if (phase === 'header-review') {
+    assert.equal(snapshot.skills.find(skill => skill.name === 'acceptance-second').source.kind, 'git');
+    result = await headerReview(page, path.join(evidence, 'screenshots'));
   } else if (phase === 'favorites') {
     await page.evaluate(installFaults, dataDir);
     result = await favorites(page, path.join(evidence, 'screenshots'));

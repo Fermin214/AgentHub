@@ -88,6 +88,11 @@ try {
     $cli="$runRoot/helpers/candidate-cli.exe"
     if ((Get-FileHash -LiteralPath $cli).Hash -ne $job.cliSha256) { throw 'Fixture CLI hash mismatch' }
     $installer="$runRoot/candidate/AgentHub_$($candidate.version)_x64-setup.exe"
+    if($job.headerReviewOnly -eq $true){
+        if(-not $job.packagedUi -or (Get-FileHash "$runRoot/helpers/node.exe").Hash -ne $job.nodeSha256){throw 'Header review requires verified Node helper'}
+        $manifest=[IO.File]::ReadAllText("$runRoot/candidate/build-manifest.json")|ConvertFrom-Json
+        Run-VmScenario 'native-header-review' "$PSScriptRoot/packaged.ps1" @('-PortableZip',"$runRoot/candidate/AgentHub-$($candidate.version)-windows-x64.zip",'-Cli',$cli,'-Node',"$runRoot/helpers/node.exe",'-DesktopSha256',$manifest.desktop.sha256,'-HeaderReview') -Limited
+    }else{
     Run-VmScenario 'cleanup-failure-probe' "$PSScriptRoot/../verify-windows-vm.ps1" @('-Installer',$installer,'-Cli',$cli,'-InjectFailureAfterInstall') -ExpectedFailure
     Run-VmScenario 'installer-lifecycle' "$PSScriptRoot/../verify-windows-vm.ps1" @('-Installer',$installer,'-Cli',$cli)
     Run-VmScenario 'portable-relocation' "$PSScriptRoot/../verify-vm-portable.ps1" @('-PortableZip',"$runRoot/candidate/AgentHub-$($candidate.version)-windows-x64.zip",'-Cli',$cli)
@@ -110,6 +115,7 @@ try {
     }
     if($job.browserDownload -eq $true){
         Run-VmScenario 'browser-download-startup' "$PSScriptRoot/browser.ps1" @('-CandidatePath',"$runRoot/candidate",'-UrlFile',"$runRoot/private-download-url.txt") -Limited
+    }
     }
 } catch { $result.scenarios+=New-AcceptanceResult 'vm-worker' 'failed' ($_.ToString()+' '+$_.ScriptStackTrace) $start }
 finally {

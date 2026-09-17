@@ -1,3 +1,37 @@
+export async function headerReview(page, evidence) {
+ const results=[];
+ const assert=(ok,message)=>{if(!ok)throw Error(message);};
+ await page.waitForFunction(()=>innerWidth===860&&innerHeight===640);
+ for(const lang of ['zh','en']){
+  await page.locator('.nav-item').last().click();
+  await page.getByRole('tab',{name:/^(关于|About)$/}).click();
+  await page.getByRole('combobox',{name:/^(界面语言|Language)$/}).selectOption(lang);
+  await page.locator('.nav-item').nth(1).click();
+  await page.getByRole('button',{name:'acceptance-second',exact:true}).click();
+  const dialog=page.getByRole('dialog');
+  await dialog.getByText('LIBRARY_COPY',{exact:false}).waitFor();
+  const link=dialog.locator('.modal__title-row a');
+  assert(await link.getAttribute('href')==='https://github.com/agenthub-fixtures/layout-only','Incorrect remote source href');
+  assert((await link.innerText()).includes(lang==='zh'?'打开来源仓库':'Open source repository'),'Source link language mismatch');
+  const geometry=await dialog.evaluate(n=>{
+   const rect=x=>{const r=x.getBoundingClientRect();return {left:r.left,right:r.right,top:r.top,bottom:r.bottom};};
+   return {title:rect(n.querySelector('h2')),link:rect(n.querySelector('.modal__title-row a')),close:rect(n.querySelector('.modal__header > .icon-button')),overflow:n.scrollWidth>n.clientWidth};
+  });
+  assert(!geometry.overflow&&geometry.title.right<=geometry.link.left,'Source link overlaps title');
+  assert(geometry.link.bottom<=640&&geometry.link.right<=860&&geometry.close.bottom<=640&&geometry.close.right<=860,'Header controls out of bounds');
+  await link.focus();assert(await link.evaluate(n=>n===document.activeElement),'Link not keyboard reachable');
+  await page.screenshot({animations:'disabled',path:`${evidence}/native-remote-header-${lang}-860.png`});
+  await page.keyboard.press('Escape');await dialog.waitFor({state:'hidden'});
+  await page.locator('.nav-item').first().click();
+  await page.locator('.prompt-card__title').filter({hasText:'UnbrokenLongTitleForWrapping'}).click();
+  await page.getByRole('dialog').locator('.prompt-preview-body').waitFor();
+  await page.screenshot({animations:'disabled',path:`${evidence}/native-header-prompt-${lang}-860.png`});
+  await page.keyboard.press('Escape');
+  results.push({lang,viewport:[860,640],geometry,remoteHref:true,keyboardReachable:true,method:'Real packaged WebView2 and backend snapshot; fictional remote metadata, no Git fetch or external launch'});
+ }
+ return results;
+}
+
 export async function layout(page, evidence) {
  const assert=(value,message)=>{if(!value)throw Error(message);};
  // Keyboard scrolling is animated by WebView2. Sample only after the position

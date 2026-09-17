@@ -30,6 +30,8 @@ pwsh -NoProfile -File scripts/acceptance.ps1 -Profile Release `
 
 `sshTarget` accepts `Try@hostname` or the explicit local account `TEST\Try@hostname`. Use the latter if OpenSSH cannot resolve the unqualified local user; do not change account permissions or SSH security policy.
 
+The configured local SSH alias `agenthub-vm` is also accepted and preferred when available. Its address and authentication settings belong in the operator's SSH config. The remote TEST/Try, VM hardware and interactive-desktop checks still apply.
+
 ```powershell
 pwsh -NoProfile -File scripts/acceptance.ps1 -Profile Release -ListScenarios
 pwsh -NoProfile -File scripts/acceptance.ps1 -Profile Release -DryRun
@@ -69,6 +71,8 @@ The browser adapter waits for the actual Internet-zone stream before extraction 
 For the exact CI portable app's maintenance regressions, set the boolean `packagedUi` to `true` in the ignored VM config. The transport stages the local Node executable and installed `playwright-core`, records the Node hash, and the existing worker runs `packaged.ps1`. It verifies the executable against the manifest and reuses the native fixture/layout/favorite/restart checks with an owned loopback-only endpoint. No application rebuild, default debugging setting or browser mock is involved. `native-maintenance` reports this scope; `native-ui-details` still requires the remaining manual checks (including real source cancellation/retry and bookmark click targets). Keep the source/helper provenance record with the candidate evidence.
 
 The maintenance child runs in a run-owned, non-elevated interactive task: elevated WebView2 hosts ignore environment browser flags. The worker retains elevation for installer/runtime operations. A missing child result, timeout or leftover task fails acceptance and preserves the lock; no child is silently terminated to manufacture cleanup success.
+
+For a focused manual-header follow-up on unchanged candidate bytes, set both `packagedUi` and `headerReviewOnly` to `true` in the ignored VM config and use the same Release command. This selects only `native-header-review`, integrity and cleanup. It seeds fictional remote-source metadata in the isolated SQLite fixture (matching `store.rs`), then reads it through the real packaged backend and reviews the source link and Prompt preview at 860x640 in both languages. It does not clone Git, open external links, rerun installer scenarios or establish full release acceptance. Other scenarios remain not-run in this follow-up report; retain the earlier exact-candidate evidence alongside it. Node 24+ with built-in `node:sqlite` is required for this optional fixture step.
 
 Each run writes `output/acceptance/a-<UTC>-<random>/`:
 
