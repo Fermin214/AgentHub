@@ -4,6 +4,9 @@ use serde_json::Value;
 use std::path::PathBuf;
 use tauri::Manager;
 
+#[cfg(windows)]
+mod startup;
+
 struct CoreState {
     data_dir: PathBuf,
 }
@@ -28,6 +31,10 @@ async fn dispatch(
 }
 
 fn main() {
+    #[cfg(windows)]
+    if !startup::runtime_available() {
+        std::process::exit(1);
+    }
     let data_dir =
         agenthub_core::default_data_dir().expect("Application data directory unavailable");
     if std::env::var_os("WEBVIEW2_USER_DATA_FOLDER").is_none() {
@@ -38,8 +45,8 @@ fn main() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .setup(|app| {
-            let data_dir = agenthub_core::default_data_dir()
-                .expect("Application data directory unavailable");
+            let data_dir =
+                agenthub_core::default_data_dir().expect("Application data directory unavailable");
             app.manage(CoreState { data_dir });
             Ok(())
         })
