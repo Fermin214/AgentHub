@@ -14,6 +14,7 @@ $caseRoot = Join-Path $Root ('cases/' + $Case)
 $reportPath = Join-Path $Root ('evidence/' + $Case + '.json')
 $report = [ordered]@{case=$Case;status='running';startedAt=(Get-Date).ToUniversalTime().ToString('o');steps=@();screens=@()}
 $reportReady=$false
+$machineBefore=$null
 $app=$null
 . (Join-Path $PSScriptRoot 'acceptance/vm-safety.ps1')
 $previousWebviewArguments=$env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS
@@ -134,6 +135,7 @@ try{
     if([IO.Path]::GetFullPath($Root) -ne 'C:\AgentHub-VM-Test' -or $Case -notmatch '^[a-z0-9-]+$'){throw 'Invalid VM fixture root or case'}
     if($env:AGENTHUB_DATA_DIR){throw 'Remove AGENTHUB_DATA_DIR before this test'}
     if((Test-Path -LiteralPath $caseRoot) -or (Test-Path -LiteralPath $reportPath)){throw 'Case already exists; preserve evidence and use a new case name'}
+    $machineBefore=Get-TestMachineState
     [void](Assert-FixturePath (Join-Path $caseRoot 'A'))
     New-Item -ItemType Directory -Path $caseRoot,(Join-Path $Root 'evidence') -Force | Out-Null
     $reportReady=$true
@@ -260,8 +262,24 @@ public static class VmPortableCapture {
     $report.status='failed';$report.error=$_.ToString();$report.stack=$_.ScriptStackTrace
     if($app -and -not $app.HasExited){try{Save-Screen 'failure'}catch{$report.captureError=$_.ToString()}}
 }finally{
-    if($app -and -not $app.HasExited){try{Close-Desktop}catch{$report.status='failed';$report.closeError=$_.ToString()}}
+    $cleanupErrors=@()
+    if($reportReady -and $dataRoot){try{Close-Desktop}catch{$cleanupErrors+=$_.ToString();$report.closeError=$_.ToString()}}
     $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=$previousWebviewArguments
+    if($reportReady){
+        try{
+            if(-not $machineBefore){throw 'Portable baseline was not recorded'}
+            $remaining=@(Get-CimInstance Win32_Process | Where-Object {
+                ($_.ExecutablePath -and $_.ExecutablePath.StartsWith($caseRoot+'\',[StringComparison]::OrdinalIgnoreCase)) -or
+                ($_.Name -eq 'msedgewebview2.exe' -and $_.CommandLine -and $_.CommandLine.Contains($caseRoot))
+            })
+            if($remaining.Count){throw 'Owned portable processes remain'}
+            $machineAfter=Get-TestMachineState
+            if(($machineBefore|ConvertTo-Json -Depth 30 -Compress) -ne ($machineAfter|ConvertTo-Json -Depth 30 -Compress)){throw 'Portable test changed VM baseline'}
+            Write-Json @{before=$machineBefore;after=$machineAfter} (Join-Path $caseRoot 'cleanup-environment.json')
+        }catch{$cleanupErrors+=$_.ToString()}
+        $report.cleanup=@{status=$(if($cleanupErrors.Count){'failed'}else{'passed'});errors=$cleanupErrors;retainedEvidence=$caseRoot}
+        if($cleanupErrors.Count){$report.status='failed'}
+    }
     $report.finishedAt=(Get-Date).ToUniversalTime().ToString('o')
     Save-Report
 }
