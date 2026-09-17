@@ -28,7 +28,23 @@ $oldArguments=$env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS
 $oldProfile=$env:WEBVIEW2_USER_DATA_FOLDER
 function Save { Write-AcceptanceJson $report "$root/report.json" }
 function Step([string]$Text){$report.steps+=$Text;Save}
-function Close-Owned($Process){if($Process -and -not $Process.HasExited){[void]$Process.CloseMainWindow();if(-not $Process.WaitForExit(10000)){throw "Owned process did not close: $($Process.Id)"}}}
+function Close-Owned($Process){
+ if(-not $Process -or $Process.HasExited){return}
+ $Process.Refresh()
+ $identity=Get-CimInstance Win32_Process -Filter "ProcessId=$($Process.Id)"
+ # Tauri's missing-runtime task dialog has no working close-box. Dismiss only
+ # its observed acknowledgement, in this run's verified portable executable.
+ if($identity.ExecutablePath -eq (Join-Path $root 'portable\AgentHub.exe') -and $Process.MainWindowHandle -ne [IntPtr]::Zero){
+  $window=[Windows.Automation.AutomationElement]::FromHandle($Process.MainWindowHandle)
+  $elements=@($window.FindAll([Windows.Automation.TreeScope]::Descendants,[Windows.Automation.Condition]::TrueCondition))
+  if(($elements|ForEach-Object {$_.Current.Name}) -match 'Could not find the WebView2 Runtime'){
+   $button=@($elements|Where-Object {$_.Current.ControlType -eq [Windows.Automation.ControlType]::Button -and $_.Current.IsEnabled -and $_.Current.Name -in @('OK',([string][char]0x786e+[char]0x5b9a))})
+   if($button.Count -ne 1){throw 'Missing-runtime acknowledgement is ambiguous'}
+   $button[0].GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern).Invoke()
+  }else{[void]$Process.CloseMainWindow()}
+ }else{[void]$Process.CloseMainWindow()}
+ if(-not $Process.WaitForExit(10000)){throw "Owned process did not close: $($Process.Id)"}
+}
 function Restore-Proxy {
  if(-not $script:proxyChanged){return}
  foreach($entry in $proxySaved){if($entry.exists){New-ItemProperty -LiteralPath $proxyKey -Name $entry.name -Value $entry.value -PropertyType $entry.kind -Force|Out-Null}else{Remove-ItemProperty -LiteralPath $proxyKey -Name $entry.name -ErrorAction SilentlyContinue}}

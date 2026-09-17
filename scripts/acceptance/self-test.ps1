@@ -12,6 +12,12 @@ function Check([string]$Name,[scriptblock]$Action) {
 }
 function Reject([scriptblock]$Action) { $rejected=$false;try{& $Action | Out-Null}catch{$rejected=$true};if(-not $rejected){throw 'Expected rejection'} }
 try {
+    Check 'SSH target permits only the fixed local test account without command syntax' {
+        . (Join-Path $PSScriptRoot 'transport.ps1')
+        Assert-VmSshTarget 'Try@192.168.1.2'
+        Assert-VmSshTarget 'TEST\Try@test-vm'
+        foreach($invalid in @('OTHER\Try@test-vm','TEST\Admin@test-vm','-oProxyCommand=cmd','Try@test;whoami','Try@test vm')){Reject { Assert-VmSshTarget $invalid }}
+    }
     Check 'Windows PowerShell 5.1 parses the native loading chain under Western ANSI' {
         $code=Invoke-AcceptanceProcess 'powershell.exe' @('-NoProfile','-File',"$project/scripts/acceptance/ps51-compatibility.ps1") "$root/ps51-compatibility.log"
         if($code -ne 0){throw "Windows PowerShell 5.1 encoding regression; see $root/ps51-compatibility.log"}

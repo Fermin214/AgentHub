@@ -9,8 +9,11 @@ function Invoke-VmCommand([string]$Target, [string]$Code, [switch]$ReadOnly) {
     }
     return ($output -join "`n")
 }
+function Assert-VmSshTarget([string]$Target) {
+    if ($Target -notmatch '^(?:TEST\\)?Try@[a-zA-Z0-9][a-zA-Z0-9.-]+$') { throw 'sshTarget must be Try@hostname or TEST\Try@hostname (no options or shell syntax)' }
+}
 function Invoke-AcceptanceVm($Config, [string]$Evidence, [string]$RunId, [string]$Candidate, [string]$BaseVersion) {
-    if ($Config.sshTarget -notmatch '^Try@[a-zA-Z0-9][a-zA-Z0-9.-]+$') { throw 'sshTarget must be Try@hostname (no options or shell syntax)' }
+    Assert-VmSshTarget $Config.sshTarget
     if ($RunId -notmatch '^a-[a-z0-9-]+$') { throw 'Invalid generated run ID' }
     $target = $Config.sshTarget
     $remote = "C:\AgentHub-VM-Test\runs\$RunId"
